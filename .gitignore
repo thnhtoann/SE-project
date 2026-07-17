@@ -1,0 +1,19 @@
+CLAUDE.local.md
+.claude/settings.local.json
+
+# environment files
+.env
+.env.local
+
+# Python / Django
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+src/backend/db.sqlite3
+src/backend/staticfiles/
+
+# Docker
+*.pid
