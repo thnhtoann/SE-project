@@ -1,8 +1,9 @@
 CLAUDE.local.md
-.claude/settings.local.json
-<<<<<<< HEAD
-=======
+.claude/
+CLAUDE.md
 
+
+.vs/
 # environment files
 .env
 .env.local
@@ -19,4 +20,3 @@ src/backend/staticfiles/
 
 # Docker
 *.pid
->>>>>>> c53e6e32e5f3ea2873a9007e7a141407828084f9
