@@ -13,6 +13,10 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-change-me-in-p
 
 DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
+GRABMART_WEBHOOK_SECRET = os.environ.get('GRABMART_WEBHOOK_SECRET', 'dev-grabmart-secret')
+SHOPEEFOOD_WEBHOOK_SECRET = os.environ.get('SHOPEEFOOD_WEBHOOK_SECRET', 'dev-shopeefood-secret')
+BEMART_WEBHOOK_SECRET = os.environ.get('BEMART_WEBHOOK_SECRET', 'dev-bemart-secret')
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
@@ -29,6 +33,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'core',
+    'omnichannel',
 ]
 
 MIDDLEWARE = [
