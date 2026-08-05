@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'core',
     'omnichannel',
+    'pos',
 ]
 
 MIDDLEWARE = [
