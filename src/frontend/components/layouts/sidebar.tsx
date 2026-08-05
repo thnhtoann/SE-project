@@ -10,6 +10,10 @@ import IconCaretsDown from '@/components/icon/icon-carets-down';
 import IconMenuDashboard from '@/components/icon/menu/icon-menu-dashboard';
 import IconCaretDown from '@/components/icon/icon-caret-down';
 import IconMinus from '@/components/icon/icon-minus';
+import IconShoppingCart from '@/components/icon/icon-shopping-cart';
+import IconClipboardText from '@/components/icon/icon-clipboard-text';
+import IconBox from '@/components/icon/icon-box';
+import IconCashBanknotes from '@/components/icon/icon-cash-banknotes';
 import IconMenuChat from '@/components/icon/menu/icon-menu-chat';
 import IconMenuMailbox from '@/components/icon/menu/icon-menu-mailbox';
 import IconMenuTodo from '@/components/icon/menu/icon-menu-todo';
@@ -132,6 +136,48 @@ const Sidebar = () => {
                                         </li>
                                     </ul>
                                 </AnimateHeight>
+                            </li>
+
+                            <h2 className="-mx-4 mb-1 flex items-center bg-white-light/30 px-7 py-3 font-extrabold uppercase dark:bg-dark dark:bg-opacity-[0.08]">
+                                <IconMinus className="hidden h-5 w-4 flex-none" />
+                                <span>{t('pos')}</span>
+                            </h2>
+
+                            <li className="nav-item">
+                                <ul>
+                                    <li className="nav-item">
+                                        <Link href="/pos" className="group">
+                                            <div className="flex items-center">
+                                                <IconShoppingCart className="shrink-0 group-hover:!text-primary" />
+                                                <span className="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">{t('sales_cart')}</span>
+                                            </div>
+                                        </Link>
+                                    </li>
+                                    <li className="nav-item">
+                                        <Link href="/pos/orders" className="group">
+                                            <div className="flex items-center">
+                                                <IconClipboardText className="shrink-0 group-hover:!text-primary" />
+                                                <span className="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">{t('order_lookup')}</span>
+                                            </div>
+                                        </Link>
+                                    </li>
+                                    <li className="nav-item">
+                                        <Link href="/pos/inventory" className="group">
+                                            <div className="flex items-center">
+                                                <IconBox className="shrink-0 group-hover:!text-primary" />
+                                                <span className="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">{t('inventory_lookup')}</span>
+                                            </div>
+                                        </Link>
+                                    </li>
+                                    <li className="nav-item">
+                                        <Link href="/pos/shift" className="group">
+                                            <div className="flex items-center">
+                                                <IconCashBanknotes className="shrink-0 group-hover:!text-primary" />
+                                                <span className="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">{t('shift_and_reports')}</span>
+                                            </div>
+                                        </Link>
+                                    </li>
+                                </ul>
                             </li>
 
                             <h2 className="-mx-4 mb-1 flex items-center bg-white-light/30 px-7 py-3 font-extrabold uppercase dark:bg-dark dark:bg-opacity-[0.08]">
