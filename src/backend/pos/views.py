@@ -1,6 +1,8 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 
 from .serializers import (
     CreateOrderSerializer,
@@ -8,7 +10,7 @@ from .serializers import (
     RemoveItemSerializer,
 )
 from .services import OrderService
-
+from .serializers import ProductPriceSerializer
 
 class CreateOrderView(APIView):
     """
@@ -117,3 +119,53 @@ class GetOrderView(APIView):
             order,
             status=status.HTTP_200_OK,
         )
+
+class ProductPriceView(APIView):
+    """
+    GET /api/pos/products/<product_id>/price/
+    """
+
+    def get(self, request, product_id):
+
+        service = OrderService()
+
+        data = service.get_discounted_price(product_id)
+
+        serializer = ProductPriceSerializer(data)
+
+        return Response(serializer.data)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class PaymentWebhookView(APIView):
+    """
+    POST /api/pos/webhooks/payment/
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        service = OrderService()
+        order = service.handle_payment_webhook(request.data)
+
+        return Response(
+            {
+                "message": "Payment webhook processed successfully.",
+                "order_id": order.order_id,
+                "status": order.status,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class SalesAnalyticsView(APIView):
+    """
+    GET /api/pos/analytics/sales/
+    """
+
+    def get(self, request):
+        service = OrderService()
+        analytics = service.get_sales_analytics()
+
+        return Response(analytics, status=status.HTTP_200_OK)

@@ -1,10 +1,15 @@
 from decimal import Decimal
-
+from datetime import date
 from django.db import transaction
+from django.db.models import Sum
+from django.db.models.functions import TruncDate, TruncHour, TruncMonth
 from django.utils import timezone
 
-from core.models import Order, OrderDetail, Product, Store, Staff
-
+from core.models import Order, OrderDetail, Product, Store, Staff, Batch
+from pos.constants import (
+    NEAR_EXPIRY_DAYS,
+    NEAR_EXPIRY_DISCOUNT,
+)
 
 class OrderService:
     TAX_RATE = Decimal("0.10")
@@ -38,13 +43,17 @@ class OrderService:
         order = Order.objects.get(order_id=order_id)
         product = Product.objects.get(product_id=product_id)
 
+        # Lấy giá sau khi áp dụng giảm giá (nếu có)
+        price_info = self.get_discounted_price(product_id)
+        unit_price = price_info["final_price"]
+
         detail, created = OrderDetail.objects.get_or_create(
             order=order,
             product=product,
             defaults={
                 "quantity": quantity,
-                "unit_price": product.base_price,
-                "sub_total": product.base_price * quantity,
+                "unit_price": unit_price,
+                "sub_total": unit_price * quantity,
             },
         )
 
@@ -158,4 +167,122 @@ class OrderService:
             "subtotal": subtotal,
             "tax": tax,
             "total": total,
+        }
+
+    def get_discounted_price(self, product_id):
+        """
+        Calculate selling price after applying near-expiry discount.
+        """
+
+        product = Product.objects.get(product_id=product_id)
+
+        today = date.today()
+
+        batch = (
+            Batch.objects
+            .filter(product=product)
+            .order_by("expiration_date")
+            .first()
+        )
+
+        if batch is None:
+            raise ValueError("Product has no batch.")
+
+        if batch.expiration_date < today:
+            raise ValueError("Product has expired.")
+
+        days_left = (batch.expiration_date - today).days
+
+        original_price = product.base_price
+
+        discount = Decimal("0.00")
+
+        if days_left <= NEAR_EXPIRY_DAYS:
+            discount = original_price * NEAR_EXPIRY_DISCOUNT
+
+        final_price = original_price - discount
+
+        return {
+            "product_id": product.product_id,
+            "product_name": product.product_name,
+            "original_price": original_price,
+            "discount": discount,
+            "final_price": final_price,
+            "days_left": days_left,
+        }
+
+    @transaction.atomic
+    def handle_payment_webhook(self, payload):
+        """
+        Update order status from a payment provider webhook payload.
+        """
+
+        order_id = payload.get("order_id")
+        status = payload.get("status", "")
+        payment_method = payload.get("payment_method", "")
+
+        order = Order.objects.get(order_id=order_id)
+
+        if status.lower() in {"paid", "success", "completed"}:
+            order.status = "Paid"
+        elif status.lower() in {"failed", "cancelled", "expired"}:
+            order.status = "Failed"
+        else:
+            order.status = "Pending"
+
+        order.payment_method = payment_method
+        order.save(update_fields=["status", "payment_method"])
+
+        return order
+
+    def get_sales_analytics(self):
+        """
+        Return grouped sales insights for best/worst sellers and revenue trends.
+        """
+
+        paid_orders = Order.objects.filter(status="Paid")
+        details = OrderDetail.objects.filter(order__in=paid_orders).select_related("product")
+
+        best_sellers = (
+            details.values("product__product_id", "product__product_name")
+            .annotate(total_quantity=Sum("quantity"))
+            .order_by("-total_quantity")[:5]
+        )
+
+        worst_sellers = (
+            details.values("product__product_id", "product__product_name")
+            .annotate(total_quantity=Sum("quantity"))
+            .order_by("total_quantity")[:5]
+        )
+
+        revenue_by_hour = (
+            paid_orders.annotate(hour=TruncHour("order_date"))
+            .values("hour")
+            .annotate(total_revenue=Sum("total_amount"))
+            .order_by("hour")
+        )
+
+        revenue_by_day = (
+            paid_orders.annotate(day=TruncDate("order_date"))
+            .values("day")
+            .annotate(total_revenue=Sum("total_amount"))
+            .order_by("day")
+        )
+
+        revenue_by_month = (
+            paid_orders.annotate(month=TruncMonth("order_date"))
+            .values("month")
+            .annotate(total_revenue=Sum("total_amount"))
+            .order_by("month")
+        )
+
+        sales_trend = revenue_by_day
+
+        return {
+            "best_sellers": list(best_sellers),
+            "worst_sellers": list(worst_sellers),
+            "revenue_by_hour": list(revenue_by_hour),
+            "revenue_by_day": list(revenue_by_day),
+            "revenue_by_month": list(revenue_by_month),
+            "sales_trend": list(sales_trend),
         }

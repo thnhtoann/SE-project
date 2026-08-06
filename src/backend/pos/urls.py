@@ -1,10 +1,12 @@
 from django.urls import path
-
 from .views import (
     CreateOrderView,
     AddItemView,
     RemoveItemView,
     GetOrderView,
+    ProductPriceView,
+    PaymentWebhookView,
+    SalesAnalyticsView,
 )
 
 urlpatterns = [
@@ -25,10 +27,28 @@ urlpatterns = [
         RemoveItemView.as_view(),
         name="remove-item",
     ),
-    
+
     path(
     "orders/<int:order_id>/",
     GetOrderView.as_view(),
     name="get-order",
+    ),
+
+    path(
+    "products/<int:product_id>/price/",
+    ProductPriceView.as_view(),
+    name="product-price",
+    ),
+
+    path(
+    "webhooks/payment/",
+    PaymentWebhookView.as_view(),
+    name="payment-webhook",
+    ),
+
+    path(
+    "analytics/sales/",
+    SalesAnalyticsView.as_view(),
+    name="sales-analytics",
     ),
 ]

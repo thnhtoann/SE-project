@@ -52,3 +52,24 @@ class RemoveItemSerializer(serializers.Serializer):
                 "Quantity must be greater than 0."
             )
         return value
+
+class ProductPriceSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    product_name = serializers.CharField()
+
+    original_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    discount = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    final_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    days_left = serializers.IntegerField()
