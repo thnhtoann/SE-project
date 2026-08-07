@@ -49,3 +49,68 @@ export interface StaffAccount {
     documents: StaffDocument[];
     certificates: StaffCertificate[];
 }
+
+export type ReportPeriod = 'week' | 'month' | 'quarter';
+
+export interface RevenuePoint {
+    label: string;
+    value: number;
+}
+
+export interface TopProduct {
+    id: number;
+    name: string;
+    unitsSold: number;
+    revenue: number;
+}
+
+export interface RecentTransaction {
+    id: number;
+    customer: string;
+    amount: number;
+    channel: string;
+    status: 'Completed' | 'Pending' | 'Canceled';
+    date: string;
+}
+
+export interface ChannelRevenue {
+    channel: string;
+    amount: number;
+}
+
+export interface FunnelStage {
+    label: string;
+    value: number;
+}
+
+export interface Branch {
+    id: number;
+    name: string;
+    address: string;
+    revenue: number;
+}
+
+export type MembershipTier = 'Bronze' | 'Silver' | 'Gold' | 'VIP';
+
+export interface MembershipTierCount {
+    tier: MembershipTier;
+    count: number;
+}
+
+export interface TopCustomer {
+    id: number;
+    name: string;
+    tier: MembershipTier;
+    totalSpent: number;
+    visits: number;
+}
+
+export interface PeakHourPoint {
+    hour: string;
+    visits: number;
+}
+
+export interface DeviceVisit {
+    device: string;
+    percentage: number;
+}

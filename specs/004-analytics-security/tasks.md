@@ -38,13 +38,21 @@ shaped like this spec's Key Entities, ready to be wired to the real API once it 
       `Customer`, and `PosTransaction` in `src/frontend/types/admin.ts`, matching this spec's Key
       Entities section — used as the mock-data shape until the real `accounts`/`analytics`
       endpoints exist
-      **(Staff-related types only so far — `StaffAccount` + its nested types. `SalesReport`,
-      `Batch`/`Product`, `Customer`, `PosTransaction` still pending for their own stories.)**
+      **(Staff types (US2) plus the reporting types US3 needed: `ReportPeriod`, `RevenuePoint`,
+      `TopProduct`, `RecentTransaction`, `ChannelRevenue`, `FunnelStage`, `Branch`,
+      `MembershipTier(Count)`, `TopCustomer`, `PeakHourPoint`, `DeviceVisit`. `Batch`/`Product`
+      (US4/US5), `Customer` (US6), and `PosTransaction` (US7) still pending.)**
+- [x] T001b Add `apexcharts@3.37.1` + `react-apexcharts@1.4.0` to `src/frontend/package.json` —
+      the reference Vristo template charts every dashboard with ApexCharts, and this repo's
+      trimmed copy of the template had dropped both. Versions pinned to match the reference
+      exactly (the `^` ranges resolve to apexcharts 4.x, which `react-apexcharts@1.9` peer-requires
+      but the template's chart configs are not written against)
 - [x] T002 [P] Add navigation entries for Dashboards, Inventory, Staff, Customers, and
       Transactions to `src/frontend/components/layouts/sidebar.tsx`, linking to the routes this
       feature adds (leave existing unrelated demo links as-is — out of scope)
-      **(Added a new "Admin Portal" nav section with the Staff link. Dashboards/Inventory/
-      Customers/Transactions entries still pending until those stories are built.)**
+      **(Added a new "Admin Portal" nav section with a collapsible Dashboards submenu
+      (Analytics/Store/Customer) and a Staff link. Inventory/Customers/Transactions entries still
+      pending until those stories are built.)**
 
 ---
 
@@ -59,11 +67,13 @@ shaped like this spec's Key Entities, ready to be wired to the real API once it 
       Customer List, and POS Transactions (US4, US6, US7) need one. Staff List (US2) turned out to
       be a pure card grid (per S16's mockup) with no table view, so it didn't need this — revisit
       when starting US4/US6/US7
-- [ ] T004 **(Deferred)** Create a reusable stat-card/KPI component in
-      `src/frontend/components/dashboard/stat-card.tsx` — the three dashboards (US3) need one.
-      Staff List's summary widgets were built inline in `components-staff-list.tsx` instead of as
-      a shared component, since they were the only consumer so far — extract to a shared component
-      if/when US3's dashboards need the same visual pattern
+- [ ] T004 **(Deferred — reassessed after US3)** Create a reusable stat-card/KPI component in
+      `src/frontend/components/dashboard/stat-card.tsx`. Not extracted: the Staff List summary
+      widgets, the Analytics Dashboard KPI row, and the Store Dashboard revenue tile each ended up
+      with different layouts (icon-left vs. gradient panel vs. bordered row), so a shared component
+      would have needed enough variants to be worth less than the inline markup. `PeriodSelector`
+      *was* extracted (T012) because all three dashboards use it identically. Revisit if US4/US6/
+      US7 introduce a fourth consumer of the same visual pattern
 
 **Checkpoint**: Shared types and components ready; user story pages can now be built
 
@@ -117,20 +127,60 @@ empty period shows an empty-report notification, not an error
 
 ### Implementation for User Story 3
 
-- [ ] T009 [P] [US3] Build Analytics Dashboard page in
+- [x] T009 [P] [US3] Build Analytics Dashboard page in
       `src/frontend/app/(defaults)/dashboards/analytics/page.tsx` — company-wide KPIs (SKUs,
       staff, customers, revenue), sales analytics, top-selling and latest transactions (S10)
-- [ ] T010 [P] [US3] Build Store Dashboard page in
+- [x] T010 [P] [US3] Build Store Dashboard page in
       `src/frontend/app/(defaults)/dashboards/store/page.tsx` — branch-level revenue, sales
       funnel, revenue sources, top staff, branch location (S11)
-- [ ] T011 [P] [US3] Build Customer Dashboard page in
-      `src/frontend/app/(defaults)/dashboards/customer/page.tsx` — membership tiers, top VIP
-      customer, peak hours, top customers, visits by device (S12)
-- [ ] T012 [US3] Add a reporting-period selector shared across the three dashboards, plus an
+      **(Adds a branch selector; Top Staff filters `mock-staff` by the selected branch and links
+      through to each Staff Details page. Now also absorbs all of S12 behind a Performance /
+      Customers tab pair — see the PA2 divergence note under T011.)**
+- [x] T011 [P] [US3] Build Customer Dashboard (S12) — membership tiers, top VIP customer, peak
+      hours, top customers, visits by device
+      **⚠ Deliberate divergence from PA2 — S12 no longer exists as its own screen.** Built first
+      as a standalone `/dashboards/customer` route, then merged into S11 at the team's request:
+      peak hours moved over first, then the remaining customer panels followed, and the standalone
+      route + `components-dashboard-customer.tsx` were deleted. All of S12's content now lives on
+      the Store Dashboard under a **Customers** tab, beside a **Performance** tab holding S11's
+      original panels; both share the page's branch and period selectors.
+      *Rationale*: every S12 panel is a branch-scoped manager view, the same audience and scope as
+      S11, so two routes split one story across two screens. Peak hours in particular is a
+      store-operations metric (staffing/shift planning), not customer segmentation.
+      *Consequence*: `pa/PA2.md` still lists S10/S11/S12 as three screens and the Dashboards nav
+      now has two entries (Analytics, Store). Per the constitution's Governance section this is
+      recorded rather than silently applied — PA2's screen table should be updated to fold S12
+      into S11, or this reverted, when the team next reconciles the PA docs.
+- [x] T011b [US3] Branch-scope the merged customer panels via `BRANCH_SHARE` in
+      `data/mock-dashboards.ts` (District 1 = 44%, District 3 = 23%, District 7 = 33%), so
+      membership tiers, peak hours, funnel, and revenue sources all follow the branch selector
+      rather than silently showing chain-wide totals on a branch-scoped page. Verified: switching
+      District 1 → District 3 moves members 1,698 → 887.
+      **Known mock-data gap**: individual customer records (`VIP_CUSTOMER`, `TOP_CUSTOMERS`) carry
+      no branch attribution, so the same VIP and top-5 list show for every branch. They need a
+      `branchId` when the real `analytics` API lands — scaling a named person's totals by a branch
+      share would be meaningless, so they are deliberately left period-scaled only.
+- [x] T011b [US3] Replace the plain text tier badges with icon-bearing ones, extracted to
+      `src/frontend/components/customers/tier-badge.tsx`. Bronze/Silver/Gold share the medal icon
+      (`IconAward`) and differ by metal colour; VIP gets `IconStar` since it sits above the medal
+      ladder. Tier labels are kept alongside the icons — icon-plus-colour alone can't distinguish
+      the three metals for colourblind users. Membership donut recoloured to the same metal tones.
+      Extracted rather than inlined because US6's Customer List (S19) will show the same badge
+- [x] T012 [US3] Add a reporting-period selector shared across the three dashboards, plus an
       empty-report state when no data exists for the selected period (FR-010), in
       `src/frontend/components/dashboard/period-selector.tsx` (depends on T009-T011)
+      **(Week/Month/Quarter. Backed by `PERIOD_MULTIPLIER` in `data/mock-dashboards.ts`, standing
+      in for the reporting API so switching the period visibly rescales every figure and chart.
+      The FR-010 empty-report branch is implemented on all three pages but is not reachable with
+      current mock data — all three seeded periods have data. It becomes exercisable once the real
+      `analytics` API can return an empty period.)**
 
-**Checkpoint**: All three dashboards independently browsable with a working period selector
+**Checkpoint**: Both dashboards (S10 Analytics, S11 Store — the latter now covering S12's content
+under a Customers tab) independently browsable with a working period selector — verified in the
+browser: all charts render (area, bar, donut, pie), period switching rescales KPIs and charts,
+branch switching re-filters Top Staff and re-scopes every customer panel, both tabs render, the
+deleted `/dashboards/customer` route correctly 404s. No console errors, `tsc --noEmit` and
+`next lint` both clean.
 
 ---
 

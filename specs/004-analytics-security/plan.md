@@ -119,8 +119,9 @@ src/frontend/
 └── app/(defaults)/
     ├── dashboards/
     │   ├── analytics/page.tsx      # Analytics Dashboard — S10
-    │   ├── store/page.tsx          # Store Dashboard — S11
-    │   └── customer/page.tsx       # Customer Dashboard — S12
+    │   └── store/page.tsx          # Store Dashboard — S11, and S12's customer panels
+    │                                # under a Customers tab (S12 merged in 2026-08-08;
+    │                                # see tasks.md T011 for the PA2 divergence note)
     ├── inventory/
     │   ├── page.tsx                 # Product List (stock/expiry status) — S13
     │   ├── [id]/page.tsx             # Product Details — S14
