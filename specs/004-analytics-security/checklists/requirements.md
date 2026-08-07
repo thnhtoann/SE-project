@@ -38,3 +38,8 @@
   could become its own `auth` feature ahead of the rest without changing this spec's content.
 - SC-001's "under 3 seconds" is sourced directly from PA1's U001 Non-Functional Constraints
   ("Authentication response time should be less than 3 seconds"), not an invented default.
+- 2026-08-08: Added User Story 6 (Customer List, S19) and User Story 7 (POS Transactions, S21) to
+  close two gaps found while scoping PA2's "Admin Management Portal" section (S10-S21) for
+  frontend implementation — S19 was named in this spec's original screen range but had no backing
+  story, and S21 wasn't claimed by any existing feature spec. Both are read-only views; re-ran
+  validation, all checklist items still pass.
