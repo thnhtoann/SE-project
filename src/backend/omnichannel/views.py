@@ -7,6 +7,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
 
+from .normalizers import normalize_grabmart, normalize_shopeefood, normalize_bemart, PayloadValidationError
+from .services import save_normalized_order, OrderSaveError
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,6 +20,7 @@ class BaseWebhookView(APIView):
     Subclasses set `platform_name` and implement `verify_signature`.
     """
     platform_name = "unknown"
+    normalizer = None  # one of normalize_grabmart/normalize_shopeefood/normalize_bemart
     authentication_classes = []  # auth here is signature-based, not DRF session/token auth
     permission_classes = []
 
@@ -46,9 +50,12 @@ class BaseWebhookView(APIView):
             logger.exception("Failed to parse payload (%s)", self.platform_name)
             return Response({"error": "Invalid JSON payload"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # --- 3. Hand off to business logic (OMNI-2 normalization goes here) ---
+        # --- 3. Normalize + persist (OMNI-2) ---
         try:
-            self.handle_event(payload)
+            order = self.handle_event(payload)
+        except (PayloadValidationError, OrderSaveError) as exc:
+            logger.warning("Webhook payload rejected (%s): %s", self.platform_name, exc)
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
             logger.exception("Error handling webhook event (%s)", self.platform_name)
             return Response({"error": "Internal processing error"}, status=status.HTTP_400_BAD_REQUEST)
@@ -58,14 +65,17 @@ class BaseWebhookView(APIView):
 
     def handle_event(self, payload: dict):
         """
-        Stub for OMNI-2 (normalize payload -> ORDER/ORDER_DETAIL) and
-        OMNI-3 (trigger real-time stock deduction). Plug that in here.
+        OMNI-2: normalize the platform payload and save it as an
+        Order/OrderDetail. OMNI-3 (real-time stock deduction) plugs in next,
+        inside services.save_normalized_order's transaction.atomic() block.
         """
-        logger.debug("Payload (%s): %s", self.platform_name, payload)
+        normalized = self.normalizer(payload)
+        return save_normalized_order(self.platform_name, normalized)
 
 
 class GrabMartWebhookView(BaseWebhookView):
     platform_name = "GrabMart"
+    normalizer = staticmethod(normalize_grabmart)
 
     def verify_signature(self, request) -> bool:
         token = request.headers.get("X-Grab-Signature")
@@ -74,6 +84,7 @@ class GrabMartWebhookView(BaseWebhookView):
 
 class ShopeeFoodWebhookView(BaseWebhookView):
     platform_name = "ShopeeFood"
+    normalizer = staticmethod(normalize_shopeefood)
 
     def verify_signature(self, request) -> bool:
         token = request.headers.get("X-Shopee-Signature")
@@ -82,6 +93,7 @@ class ShopeeFoodWebhookView(BaseWebhookView):
 
 class BeMartWebhookView(BaseWebhookView):
     platform_name = "BeMart"
+    normalizer = staticmethod(normalize_bemart)
 
     def verify_signature(self, request) -> bool:
         token = request.headers.get("X-Bemart-Signature")
