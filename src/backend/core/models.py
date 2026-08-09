@@ -116,6 +116,10 @@ class Order(models.Model):
     payment_method = models.CharField(max_length=50)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=50)
+    external_order_id = models.CharField(max_length=100, null=True, blank=True)  # Webhook idempotency key
+
+    class Meta:
+        unique_together = (('order_type', 'external_order_id'),)
 
     def __str__(self):
         return f"Order {self.order_id} - {self.store.store_name} ({self.status})"
