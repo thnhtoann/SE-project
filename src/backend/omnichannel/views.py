@@ -60,8 +60,8 @@ class BaseWebhookView(APIView):
             logger.exception("Error handling webhook event (%s)", self.platform_name)
             return Response({"error": "Internal processing error"}, status=status.HTTP_400_BAD_REQUEST)
 
-        logger.info("Webhook processed (%s): order_ref=%s", self.platform_name, payload.get("order_id"))
-        return Response({"status": "received"}, status=status.HTTP_200_OK)
+        logger.info("Webhook processed (%s): order_id=%s", self.platform_name, order.order_id)
+        return Response({"status": "received", "order_id": order.order_id}, status=status.HTTP_200_OK)
 
     def handle_event(self, payload: dict):
         """
