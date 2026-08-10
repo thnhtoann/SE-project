@@ -1,11 +1,14 @@
 'use client';
 import { ReportPeriod } from '@/types/admin';
+import { getTranslation } from '@/i18n';
 
-const PERIODS: { value: ReportPeriod; label: string }[] = [
-    { value: 'week', label: 'This Week' },
-    { value: 'month', label: 'This Month' },
-    { value: 'quarter', label: 'This Quarter' },
-];
+const PERIOD_KEY: Record<ReportPeriod, string> = {
+    week: 'this_week',
+    month: 'this_month',
+    quarter: 'this_quarter',
+};
+
+const PERIODS: ReportPeriod[] = ['week', 'month', 'quarter'];
 
 interface PeriodSelectorProps {
     value: ReportPeriod;
@@ -13,16 +16,18 @@ interface PeriodSelectorProps {
 }
 
 const PeriodSelector = ({ value, onChange }: PeriodSelectorProps) => {
+    const { t } = getTranslation();
+
     return (
         <div className="flex gap-2">
             {PERIODS.map((period) => (
                 <button
-                    key={period.value}
+                    key={period}
                     type="button"
-                    className={`btn btn-sm ${value === period.value ? 'btn-primary' : 'btn-outline-primary'}`}
-                    onClick={() => onChange(period.value)}
+                    className={`btn btn-sm ${value === period ? 'btn-primary' : 'btn-outline-primary'}`}
+                    onClick={() => onChange(period)}
                 >
-                    {period.label}
+                    {t(PERIOD_KEY[period])}
                 </button>
             ))}
         </div>

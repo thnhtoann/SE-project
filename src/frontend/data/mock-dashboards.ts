@@ -99,6 +99,11 @@ export const PEAK_HOURS: PeakHourPoint[] = [
     { hour: '10pm', visits: 38 },
 ];
 
+// Stand-in for the real reporting API's previous-period comparison: the prior
+// week/month/quarter is seeded as a flat 12% below the current period rather than
+// its own data series, consistent with this file's other period/branch multipliers.
+export const PEAK_HOURS_PREVIOUS_FACTOR = 0.88;
+
 export const TOP_CUSTOMERS: TopCustomer[] = [
     { id: 1, name: 'Tran Thi Kim Anh', tier: 'VIP', totalSpent: 48500000, visits: 214 },
     { id: 2, name: 'Nguyen Minh Duc', tier: 'Gold', totalSpent: 21300000, visits: 96 },

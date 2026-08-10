@@ -1,7 +1,4 @@
 {
-    "404": "404",
-    "500": "500",
-    "503": "503",
     "dashboard": "Dashboard",
     "sales": "Sales",
     "analytics": "Analytics",
@@ -112,6 +109,9 @@
     "lockscreen": "Lockscreen",
     "password_recovery": "Password Recovery",
     "register": "Register",
+    "404": "404",
+    "500": "500",
+    "503": "503",
     "user_interface": "User Interface",
     "tables_and_forms": "Tables And Forms",
     "columns_filter": "Columns Filter",
@@ -125,6 +125,7 @@
     "coming_soon_cover": "Coming Soon Cover",
     "contact_us_boxed": "Contact Us Boxed",
     "contact_us_cover": "Contact Us Cover",
+
     "pos": "POS",
     "sales_cart": "Sales Cart",
     "order_lookup": "Order Lookup",
@@ -175,6 +176,7 @@
     "top_products": "Top Products",
     "product_name": "Product Name",
     "qty_sold": "Qty Sold",
+
     "admin_portal": "Admin Portal",
     "inventory": "Inventory",
     "customers": "Customers",
@@ -188,8 +190,10 @@
     "back_to_product_list": "Back to Product List",
     "product_information": "Product Information",
     "initial_batch": "Initial Batch",
+    "preview": "Preview",
     "actions": "Actions",
     "view": "View",
+    "edit": "Edit",
     "delete": "Delete",
     "cancel": "Cancel",
     "confirm_delete_product": "Are you sure you want to delete this product?",
@@ -282,6 +286,7 @@
     "showing": "Showing",
     "to": "to",
     "entries": "entries",
+
     "staff": "Staff",
     "staff_list": "Staff List",
     "add_staff": "Add Staff",
@@ -334,6 +339,7 @@
     "no_documents_on_file": "No documents on file.",
     "certificates": "Certificates",
     "no_certificates_on_file": "No certificates on file.",
+
     "this_week": "This Week",
     "this_month": "This Month",
     "this_quarter": "This Quarter",
@@ -371,6 +377,7 @@
     "visits": "Visits",
     "visits_by_device": "Visits by Device",
     "top_customers": "Top Customers",
+
     "suppliers": "Suppliers",
     "supplier_list": "Supplier List",
     "add_supplier": "Add Supplier",
@@ -383,5 +390,12 @@
     "enter_phone": "Enter phone number",
     "error_supplier_name_required": "Supplier name is required.",
     "error_address_required": "Address is required.",
-    "confirm_delete_supplier": "Are you sure you want to delete this supplier?"
+    "confirm_delete_supplier": "Are you sure you want to delete this supplier?",
+
+    "add_branch": "Add Branch",
+    "branch_name": "Branch Name",
+    "enter_branch_name": "Enter branch name",
+    "error_branch_name_required": "Branch name is required.",
+    "current_period": "Current Period",
+    "previous_period": "Previous Period"
 }

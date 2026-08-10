@@ -1,7 +1,4 @@
 {
-    "404": "404",
-    "500": "500",
-    "503": "503",
     "dashboard": "Bảng điều khiển",
     "sales": "Bán hàng",
     "analytics": "Phân tích",
@@ -112,6 +109,9 @@
     "lockscreen": "Màn hình khóa",
     "password_recovery": "Khôi phục mật khẩu",
     "register": "Đăng ký",
+    "404": "404",
+    "500": "500",
+    "503": "503",
     "user_interface": "Giao diện người dùng",
     "tables_and_forms": "Bảng & Biểu mẫu",
     "columns_filter": "Lọc cột",
@@ -125,6 +125,7 @@
     "coming_soon_cover": "Sắp ra mắt (nền ảnh)",
     "contact_us_boxed": "Liên hệ (khung)",
     "contact_us_cover": "Liên hệ (nền ảnh)",
+
     "pos": "Bán hàng tại quầy",
     "sales_cart": "Giỏ hàng bán",
     "order_lookup": "Tra cứu đơn hàng",
@@ -175,6 +176,7 @@
     "top_products": "Sản phẩm bán chạy",
     "product_name": "Tên sản phẩm",
     "qty_sold": "Số lượng đã bán",
+
     "admin_portal": "Cổng quản trị",
     "inventory": "Kho hàng",
     "customers": "Khách hàng",
@@ -188,8 +190,10 @@
     "back_to_product_list": "Quay lại danh sách sản phẩm",
     "product_information": "Thông tin sản phẩm",
     "initial_batch": "Lô hàng ban đầu",
+    "preview": "Xem trước",
     "actions": "Thao tác",
     "view": "Xem",
+    "edit": "Sửa",
     "delete": "Xóa",
     "cancel": "Hủy",
     "confirm_delete_product": "Bạn có chắc chắn muốn xóa sản phẩm này không?",
@@ -282,6 +286,7 @@
     "showing": "Hiển thị",
     "to": "đến",
     "entries": "mục",
+
     "staff": "Nhân viên",
     "staff_list": "Danh sách nhân viên",
     "add_staff": "Thêm nhân viên",
@@ -334,6 +339,7 @@
     "no_documents_on_file": "Chưa có hồ sơ nào.",
     "certificates": "Chứng chỉ",
     "no_certificates_on_file": "Chưa có chứng chỉ nào.",
+
     "this_week": "Tuần này",
     "this_month": "Tháng này",
     "this_quarter": "Quý này",
@@ -371,6 +377,7 @@
     "visits": "Lượt ghé thăm",
     "visits_by_device": "Lượt truy cập theo thiết bị",
     "top_customers": "Khách hàng hàng đầu",
+
     "suppliers": "Nhà cung cấp",
     "supplier_list": "Danh sách nhà cung cấp",
     "add_supplier": "Thêm nhà cung cấp",
@@ -383,5 +390,12 @@
     "enter_phone": "Nhập số điện thoại",
     "error_supplier_name_required": "Vui lòng nhập tên nhà cung cấp.",
     "error_address_required": "Vui lòng nhập địa chỉ.",
-    "confirm_delete_supplier": "Bạn có chắc chắn muốn xóa nhà cung cấp này không?"
+    "confirm_delete_supplier": "Bạn có chắc chắn muốn xóa nhà cung cấp này không?",
+
+    "add_branch": "Thêm chi nhánh",
+    "branch_name": "Tên chi nhánh",
+    "enter_branch_name": "Nhập tên chi nhánh",
+    "error_branch_name_required": "Vui lòng nhập tên chi nhánh.",
+    "current_period": "Kỳ hiện tại",
+    "previous_period": "Kỳ trước"
 }
