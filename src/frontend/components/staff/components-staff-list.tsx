@@ -9,6 +9,7 @@ import IconUserPlus from '@/components/icon/icon-user-plus';
 import IconUsers from '@/components/icon/icon-users';
 import { MOCK_STAFF } from '@/data/mock-staff';
 import { StaffPerformanceStatus } from '@/types/admin';
+import { getTranslation } from '@/i18n';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
@@ -18,9 +19,16 @@ const performanceBadgeClass: Record<StaffPerformanceStatus, string> = {
     'Needs Improvement': 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light',
 };
 
+const performanceKey: Record<StaffPerformanceStatus, string> = {
+    Excellent: 'performance_excellent',
+    Good: 'performance_good',
+    'Needs Improvement': 'performance_needs_improvement',
+};
+
 const currency = (value: number) => (value > 0 ? `₫${value.toLocaleString('en-US')}` : '—');
 
 const ComponentsStaffList = () => {
+    const { t } = getTranslation();
     const [search, setSearch] = useState('');
     const [filteredStaff, setFilteredStaff] = useState(MOCK_STAFF);
 
@@ -39,10 +47,10 @@ const ComponentsStaffList = () => {
         <div>
             <ul className="flex space-x-2 rtl:space-x-reverse">
                 <li>
-                    <span>Admin Portal</span>
+                    <span>{t('admin_portal')}</span>
                 </li>
                 <li className="before:content-['/'] ltr:before:mr-2 rtl:before:ml-2">
-                    <span>Staff</span>
+                    <span>{t('staff')}</span>
                 </li>
             </ul>
 
@@ -54,7 +62,7 @@ const ComponentsStaffList = () => {
                                 <IconUsers />
                             </div>
                             <div className="flex-auto ltr:ml-4 rtl:mr-4">
-                                <h6 className="text-[13px] text-white-dark">Total Staff</h6>
+                                <h6 className="text-[13px] text-white-dark">{t('total_staff')}</h6>
                                 <p className="text-base font-semibold text-[#515365] dark:text-white-light">{totalStaff}</p>
                             </div>
                         </div>
@@ -65,7 +73,7 @@ const ComponentsStaffList = () => {
                                 <IconHome />
                             </div>
                             <div className="flex-auto ltr:ml-4 rtl:mr-4">
-                                <h6 className="text-[13px] text-white-dark">Branches Covered</h6>
+                                <h6 className="text-[13px] text-white-dark">{t('branches_covered')}</h6>
                                 <p className="text-base font-semibold text-[#515365] dark:text-white-light">{branchCount}</p>
                             </div>
                         </div>
@@ -76,7 +84,7 @@ const ComponentsStaffList = () => {
                                 <IconDollarSignCircle />
                             </div>
                             <div className="flex-auto ltr:ml-4 rtl:mr-4">
-                                <h6 className="text-[13px] text-white-dark">Avg. Monthly Sales</h6>
+                                <h6 className="text-[13px] text-white-dark">{t('avg_monthly_sales')}</h6>
                                 <p className="text-base font-semibold text-[#515365] dark:text-white-light">{currency(avgMonthlySales)}</p>
                             </div>
                         </div>
@@ -87,7 +95,7 @@ const ComponentsStaffList = () => {
                                 <IconStar />
                             </div>
                             <div className="flex-auto ltr:ml-4 rtl:mr-4">
-                                <h6 className="text-[13px] text-white-dark">Excellent Performers</h6>
+                                <h6 className="text-[13px] text-white-dark">{t('excellent_performers')}</h6>
                                 <p className="text-base font-semibold text-[#515365] dark:text-white-light">{excellentCount}</p>
                             </div>
                         </div>
@@ -95,16 +103,16 @@ const ComponentsStaffList = () => {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-4">
-                    <h2 className="text-xl">Staff List</h2>
+                    <h2 className="text-xl">{t('staff_list')}</h2>
                     <div className="flex w-full flex-col gap-4 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
                         <Link href="/staff/add" className="btn btn-primary">
                             <IconUserPlus className="ltr:mr-2 rtl:ml-2" />
-                            Add Staff
+                            {t('add_staff')}
                         </Link>
                         <div className="relative">
                             <input
                                 type="text"
-                                placeholder="Search by name or branch"
+                                placeholder={t('search_staff_placeholder')}
                                 className="peer form-input py-2 ltr:pr-11 rtl:pl-11"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
@@ -117,7 +125,7 @@ const ComponentsStaffList = () => {
                 </div>
 
                 {filteredStaff.length === 0 ? (
-                    <div className="panel mt-5 flex items-center justify-center py-16 text-white-dark">No staff match your search.</div>
+                    <div className="panel mt-5 flex items-center justify-center py-16 text-white-dark">{t('no_staff_found')}</div>
                 ) : (
                     <div className="mt-5 grid w-full grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                         {filteredStaff.map((staff) => (
@@ -133,15 +141,15 @@ const ComponentsStaffList = () => {
                                     <div className="rounded-md bg-white px-2 py-4 shadow-md dark:bg-gray-900">
                                         <div className="text-lg font-semibold">{staff.name}</div>
                                         <div className="text-white-dark">{staff.role}</div>
-                                        <span className={`badge mt-2 inline-block ${performanceBadgeClass[staff.performanceStatus]}`}>{staff.performanceStatus}</span>
+                                        <span className={`badge mt-2 inline-block ${performanceBadgeClass[staff.performanceStatus]}`}>{t(performanceKey[staff.performanceStatus])}</span>
                                         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                                             <div className="flex-auto">
                                                 <div className="text-info">{currency(staff.monthlySales)}</div>
-                                                <div className="text-xs">Monthly Sales</div>
+                                                <div className="text-xs">{t('monthly_sales')}</div>
                                             </div>
                                             <div className="flex-auto">
                                                 <div className="text-info">{staff.branch}</div>
-                                                <div className="text-xs">Branch</div>
+                                                <div className="text-xs">{t('branch')}</div>
                                             </div>
                                         </div>
                                     </div>

@@ -12,6 +12,7 @@ import IconPhone from '@/components/icon/icon-phone';
 import IconStar from '@/components/icon/icon-star';
 import IconTwitter from '@/components/icon/icon-twitter';
 import { StaffAccount, StaffPerformanceStatus } from '@/types/admin';
+import { getTranslation } from '@/i18n';
 import Link from 'next/link';
 import React from 'react';
 
@@ -21,13 +22,20 @@ const performanceBadgeClass: Record<StaffPerformanceStatus, string> = {
     'Needs Improvement': 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light',
 };
 
+const performanceKey: Record<StaffPerformanceStatus, string> = {
+    Excellent: 'performance_excellent',
+    Good: 'performance_good',
+    'Needs Improvement': 'performance_needs_improvement',
+};
+
 const ComponentsStaffDetails = ({ staff }: { staff: StaffAccount }) => {
+    const { t } = getTranslation();
     return (
         <div>
             <ul className="flex space-x-2 rtl:space-x-reverse">
                 <li>
                     <Link href="/staff" className="text-primary hover:underline">
-                        Staff
+                        {t('staff')}
                     </Link>
                 </li>
                 <li className="before:content-['/'] ltr:before:mr-2 rtl:before:ml-2">
@@ -39,7 +47,7 @@ const ComponentsStaffDetails = ({ staff }: { staff: StaffAccount }) => {
                 <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3 xl:grid-cols-4">
                     <div className="panel">
                         <div className="mb-5 flex items-center justify-between">
-                            <h5 className="text-lg font-semibold dark:text-white-light">Profile</h5>
+                            <h5 className="text-lg font-semibold dark:text-white-light">{t('profile')}</h5>
                             <Link href="/staff" className="btn btn-outline-primary rounded-full p-2 ltr:ml-auto rtl:mr-auto">
                                 <IconArrowBackward />
                             </Link>
@@ -48,7 +56,7 @@ const ComponentsStaffDetails = ({ staff }: { staff: StaffAccount }) => {
                             <div className="flex flex-col items-center justify-center">
                                 <img src={`/assets/images/${staff.photo}`} alt={staff.name} className="mb-5 h-24 w-24 rounded-full object-cover" />
                                 <p className="text-xl font-semibold text-primary">{staff.name}</p>
-                                <span className={`badge mt-2 ${performanceBadgeClass[staff.performanceStatus]}`}>{staff.performanceStatus}</span>
+                                <span className={`badge mt-2 ${performanceBadgeClass[staff.performanceStatus]}`}>{t(performanceKey[staff.performanceStatus])}</span>
                             </div>
                             <ul className="m-auto mt-5 flex max-w-[220px] flex-col space-y-4 font-semibold text-white-dark">
                                 <li className="flex items-center gap-2">
@@ -56,7 +64,7 @@ const ComponentsStaffDetails = ({ staff }: { staff: StaffAccount }) => {
                                 </li>
                                 <li className="flex items-center gap-2">
                                     <IconCalendar className="shrink-0" />
-                                    Joined {new Date(staff.joinedAt).toLocaleDateString()}
+                                    {t('joined')} {new Date(staff.joinedAt).toLocaleDateString()}
                                 </li>
                                 <li>
                                     <button className="flex items-center gap-2">
@@ -107,10 +115,10 @@ const ComponentsStaffDetails = ({ staff }: { staff: StaffAccount }) => {
                     <div className="panel lg:col-span-2 xl:col-span-3">
                         <div className="mb-5 flex items-center gap-2">
                             <IconStar className="text-warning" />
-                            <h5 className="text-lg font-semibold dark:text-white-light">Reviews</h5>
+                            <h5 className="text-lg font-semibold dark:text-white-light">{t('reviews')}</h5>
                         </div>
                         {staff.reviews.length === 0 ? (
-                            <p className="text-white-dark">No reviews recorded yet.</p>
+                            <p className="text-white-dark">{t('no_reviews_recorded')}</p>
                         ) : (
                             <div className="space-y-4">
                                 {staff.reviews.map((review) => (
@@ -136,10 +144,10 @@ const ComponentsStaffDetails = ({ staff }: { staff: StaffAccount }) => {
                     <div className="panel">
                         <div className="mb-5 flex items-center gap-2">
                             <IconFile className="shrink-0" />
-                            <h5 className="text-lg font-semibold dark:text-white-light">Documents</h5>
+                            <h5 className="text-lg font-semibold dark:text-white-light">{t('documents')}</h5>
                         </div>
                         {staff.documents.length === 0 ? (
-                            <p className="text-white-dark">No documents on file.</p>
+                            <p className="text-white-dark">{t('no_documents_on_file')}</p>
                         ) : (
                             <ul className="space-y-3">
                                 {staff.documents.map((doc) => (
@@ -158,10 +166,10 @@ const ComponentsStaffDetails = ({ staff }: { staff: StaffAccount }) => {
                     <div className="panel">
                         <div className="mb-5 flex items-center gap-2">
                             <IconAward className="shrink-0" />
-                            <h5 className="text-lg font-semibold dark:text-white-light">Certificates</h5>
+                            <h5 className="text-lg font-semibold dark:text-white-light">{t('certificates')}</h5>
                         </div>
                         {staff.certificates.length === 0 ? (
-                            <p className="text-white-dark">No certificates on file.</p>
+                            <p className="text-white-dark">{t('no_certificates_on_file')}</p>
                         ) : (
                             <ul className="space-y-3">
                                 {staff.certificates.map((cert) => (
