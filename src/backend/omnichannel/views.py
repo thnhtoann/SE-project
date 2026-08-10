@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
+from core.inventory import InsufficientStockError
 
 from .normalizers import normalize_grabmart, normalize_shopeefood, normalize_bemart, PayloadValidationError
 from .services import save_normalized_order, OrderSaveError
@@ -56,6 +57,9 @@ class BaseWebhookView(APIView):
         except (PayloadValidationError, OrderSaveError) as exc:
             logger.warning("Webhook payload rejected (%s): %s", self.platform_name, exc)
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except InsufficientStockError as exc:
+            logger.warning("Webhook rejected, insufficient stock (%s): %s", self.platform_name, exc)
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
         except Exception:
             logger.exception("Error handling webhook event (%s)", self.platform_name)
             return Response({"error": "Internal processing error"}, status=status.HTTP_400_BAD_REQUEST)
