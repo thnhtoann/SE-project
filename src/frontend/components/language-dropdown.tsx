@@ -20,12 +20,8 @@ const LanguageDropdown = ({ className = '' }: LanguageDropdownProps) => {
     const isRtl = useSelector((state: IRootState) => state.themeConfig.rtlClass) === 'rtl';
 
     const themeConfig = useSelector((state: IRootState) => state.themeConfig);
-    const setLocale = (flag: string) => {
-        if (flag.toLowerCase() === 'ae') {
-            dispatch(toggleRTL('rtl'));
-        } else {
-            dispatch(toggleRTL('ltr'));
-        }
+    const setLocale = () => {
+        dispatch(toggleRTL('ltr'));
         router.refresh();
     };
 
@@ -57,7 +53,7 @@ const LanguageDropdown = ({ className = '' }: LanguageDropdownProps) => {
                                         className={`flex w-full rounded-lg hover:text-primary ${i18n.language === item.code ? 'bg-primary/10 text-primary' : ''}`}
                                         onClick={() => {
                                             i18n.changeLanguage(item.code);
-                                            setLocale(item.code);
+                                            setLocale();
                                         }}
                                     >
                                         <img src={`/assets/images/flags/${item.code.toUpperCase()}.svg`} alt="flag" className="h-5 w-5 rounded-full object-cover" />
