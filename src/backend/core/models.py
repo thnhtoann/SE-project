@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 
@@ -69,6 +71,9 @@ class Product(models.Model):
     def __str__(self):
         return self.product_name
 
+    def is_low_stock(self, quantity):
+        return quantity <= self.min_threshold
+
 # 6. Bảng BATCH
 class Batch(models.Model):
     batch_id = models.AutoField(primary_key=True)
@@ -78,6 +83,10 @@ class Batch(models.Model):
 
     def __str__(self):
         return f"{self.product.product_name} - Batch {self.batch_id}"
+
+    def is_expiring_soon(self, days=7, as_of_date=None):
+        reference_date = as_of_date or date.today()
+        return reference_date <= self.expiration_date <= reference_date + timedelta(days=days)
 
 # 7. Bảng STORE_INVENTORY
 class StoreInventory(models.Model):
@@ -136,6 +145,10 @@ class Order(models.Model):
     payment_method = models.CharField(max_length=50)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=50)
+    external_order_id = models.CharField(max_length=100, null=True, blank=True)  # Webhook idempotency key
+
+    class Meta:
+        unique_together = (('order_type', 'external_order_id'),)
 
     def __str__(self):
         return f"Order {self.order_id} - {self.store.store_name} ({self.status})"
