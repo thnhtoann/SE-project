@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from django.db import models
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 
 # 1. Bảng ROLE
 class Role(models.Model):
@@ -20,16 +21,35 @@ class Store(models.Model):
         return self.store_name
 
 # 3. Bảng STAFF
-class Staff(models.Model):
+class StaffManager(BaseUserManager):
+    def create_user(self, username, password=None, **extra_fields):
+        if not username:
+            raise ValueError('Username is required')
+        user = self.model(username=username, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+class Staff(AbstractBaseUser):
     staff_id = models.AutoField(primary_key=True)
     username = models.CharField(max_length=50, unique=True)
-    password = models.CharField(max_length=255)
     full_name = models.CharField(max_length=100)
-    role = models.ForeignKey(Role, on_delete=models.PROTECT)
-    store = models.ForeignKey(Store, on_delete=models.SET_NULL, null=True, blank=True)
+    role = models.ForeignKey('Role', on_delete=models.PROTECT)
+    store = models.ForeignKey('Store', on_delete=models.SET_NULL, null=True, blank=True)
+    
+    is_active = models.BooleanField(default=True)
+    
+    objects = StaffManager()
+    
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = ['full_name', 'role_id']
 
     def __str__(self):
         return self.full_name
+
+    @property
+    def role_name(self):
+        return self.role.role_name
 
 # 4. Bảng CATEGORY
 class Category(models.Model):
