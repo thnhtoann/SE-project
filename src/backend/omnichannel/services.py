@@ -8,6 +8,7 @@ import logging
 
 from django.db import transaction
 
+from core.inventory import deduct_stock
 from core.models import Order, OrderDetail, Product, Store
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ def save_normalized_order(platform_name: str, normalized: dict) -> Order:
                 unit_price=item['unit_price'],
                 sub_total=sub_total,
             )
+            deduct_stock(store, product, item['quantity'])
             total += sub_total
 
         order.total_amount = total
