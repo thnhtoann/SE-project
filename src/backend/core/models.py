@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.db import models
 
 # 1. Bảng ROLE
@@ -49,6 +51,9 @@ class Product(models.Model):
     def __str__(self):
         return self.product_name
 
+    def is_low_stock(self, quantity):
+        return quantity <= self.min_threshold
+
 # 6. Bảng BATCH
 class Batch(models.Model):
     batch_id = models.AutoField(primary_key=True)
@@ -58,6 +63,10 @@ class Batch(models.Model):
 
     def __str__(self):
         return f"{self.product.product_name} - Batch {self.batch_id}"
+
+    def is_expiring_soon(self, days=7, as_of_date=None):
+        reference_date = as_of_date or date.today()
+        return reference_date <= self.expiration_date <= reference_date + timedelta(days=days)
 
 # 7. Bảng STORE_INVENTORY
 class StoreInventory(models.Model):
