@@ -114,3 +114,55 @@ export interface DeviceVisit {
     device: string;
     percentage: number;
 }
+
+// Product/Batch/Supplier field names mirror the backend schema
+// (src/backend/core/models.py) so swapping mock data for the real API later is
+// mechanical. Stock quantity lives on StoreInventory per batch, not on Product.
+export type StockStatus = 'In Stock' | 'Low Stock' | 'Out of Stock';
+
+export type ExpiryStatus = 'Expired' | 'Near Expiry' | 'OK';
+
+export interface Supplier {
+    supplier_id: number;
+    supplier_name: string;
+    contact_phone: string;
+    email: string;
+    address: string;
+}
+
+export interface StoreInventoryEntry {
+    store: string;
+    quantity: number;
+}
+
+export interface Batch {
+    batch_id: number;
+    product_id: number;
+    manufacture_date: string;
+    expiration_date: string;
+    storeInventory: StoreInventoryEntry[];
+}
+
+export interface DiscountRecord {
+    id: number;
+    type: 'percentage' | 'price';
+    value: number;
+    appliedAt: string;
+}
+
+export interface Product {
+    product_id: number;
+    barcode: string;
+    product_name: string;
+    base_price: number;
+    min_threshold: number;
+    category: string;
+    photo: string;
+    unit: string;
+    tags: string[];
+    description: string;
+    supplier_id: number;
+    batches: Batch[];
+    discountPercent?: number;
+    discountHistory: DiscountRecord[];
+}
