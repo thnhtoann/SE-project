@@ -16,6 +16,7 @@ import IconBox from '@/components/icon/icon-box';
 import IconCashBanknotes from '@/components/icon/icon-cash-banknotes';
 import IconArchive from '@/components/icon/icon-archive';
 import IconUsersGroup from '@/components/icon/icon-users-group';
+import IconCreditCard from '@/components/icon/icon-credit-card';
 import IconMenuChat from '@/components/icon/menu/icon-menu-chat';
 import IconMenuMailbox from '@/components/icon/menu/icon-menu-mailbox';
 import IconMenuTodo from '@/components/icon/menu/icon-menu-todo';
@@ -233,6 +234,14 @@ const Sidebar = () => {
                                             <div className="flex items-center">
                                                 <IconUsersGroup className="shrink-0 group-hover:!text-primary" />
                                                 <span className="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">{t('customers')}</span>
+                                            </div>
+                                        </Link>
+                                    </li>
+                                    <li className="nav-item">
+                                        <Link href="/transactions" className="group">
+                                            <div className="flex items-center">
+                                                <IconCreditCard className="shrink-0 group-hover:!text-primary" />
+                                                <span className="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">{t('transactions')}</span>
                                             </div>
                                         </Link>
                                     </li>

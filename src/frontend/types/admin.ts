@@ -179,3 +179,15 @@ export interface Customer {
     status: CustomerStatus;
     lastContactedAt: string;
 }
+
+export type PaymentMethod = 'Card' | 'MoMo' | 'Cash' | 'Online Banking';
+
+export interface PosTransaction {
+    id: string;
+    customer: string;
+    amount: number;
+    paymentMethod: PaymentMethod;
+    cashier: string;
+    status: 'Completed' | 'Pending' | 'Canceled';
+    date: string;
+}
