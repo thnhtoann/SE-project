@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from .models import Batch, Category, Product, Store, StoreInventory, Supplier
 
+from core.inventory import deduct_stock, InsufficientStockError
 
 class SupplierApiTests(TestCase):
     def setUp(self):
@@ -134,3 +135,80 @@ class ProcurementTestingTests(TestCase):
 
         self.assertEqual(inventory.quantity, 4)
         self.assertTrue(self.product.is_low_stock(inventory.quantity))
+
+class DeductStockTests(TestCase):
+    """OMNI-3: real-time stock deduction (FEFO across StoreInventory batches)."""
+
+    def setUp(self):
+        self.category = Category.objects.create(category_name='Beverages')
+        self.product = Product.objects.create(
+            barcode='8934673125456',
+            product_name='Sparkling Water',
+            base_price=Decimal('0.90'),
+            min_threshold=5,
+            category=self.category,
+        )
+        self.store = Store.objects.create(store_name='Test Store', location='HCMC')
+
+    def _make_inventory(self, expiration_offset_days, quantity):
+        """Helper: create a Batch + matching StoreInventory row for self.product
+        at self.store, expiring `expiration_offset_days` from today, with the
+        given starting quantity."""
+        today = date.today()
+        batch = Batch.objects.create(
+            product=self.product,
+            manufacture_date=today - timedelta(days=30),
+            expiration_date=today + timedelta(days=expiration_offset_days),
+        )
+        return StoreInventory.objects.create(store=self.store, batch=batch, quantity=quantity)
+
+    def test_exact_boundary_deduction(self):
+        """Requesting exactly the available quantity should succeed and leave
+        the batch at exactly zero (not negative, not left over)."""
+        inventory = self._make_inventory(expiration_offset_days=7, quantity=5)
+
+        deduct_stock(self.store, self.product, 5)
+
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.quantity, 0)
+
+    def test_insufficient_stock_raises_and_does_not_modify_inventory(self):
+        """Requesting more than total available stock across all batches must
+        raise InsufficientStockError and must NOT partially deduct anything —
+        the inventory should be completely unchanged after the failed call."""
+        inventory = self._make_inventory(expiration_offset_days=7, quantity=3)
+
+        with self.assertRaises(InsufficientStockError):
+            deduct_stock(self.store, self.product, 10)
+
+        inventory.refresh_from_db()
+        self.assertEqual(inventory.quantity, 3)  # untouched, no partial deduction
+
+    def test_multibatch_fefo_split(self):
+        """When a deduction spans multiple batches, the soonest-to-expire batch
+        (FEFO) must be drained first, then the remainder taken from the next
+        soonest-expiring batch — never touching a later batch until an earlier
+        one is empty."""
+        soon = self._make_inventory(expiration_offset_days=3, quantity=4)   # expires soonest
+        later = self._make_inventory(expiration_offset_days=30, quantity=10)  # expires later
+
+        # Request 6: should fully drain `soon` (4) then take 2 from `later`
+        deduct_stock(self.store, self.product, 6)
+
+        soon.refresh_from_db()
+        later.refresh_from_db()
+        self.assertEqual(soon.quantity, 0)
+        self.assertEqual(later.quantity, 8)
+
+    def test_multibatch_fefo_exact_boundary_across_two_batches(self):
+        """Requesting a quantity that exactly matches the sum of two batches
+        should drain both to zero, still respecting expiration order."""
+        soon = self._make_inventory(expiration_offset_days=1, quantity=2)
+        later = self._make_inventory(expiration_offset_days=15, quantity=3)
+
+        deduct_stock(self.store, self.product, 5)  # exactly 2 + 3
+
+        soon.refresh_from_db()
+        later.refresh_from_db()
+        self.assertEqual(soon.quantity, 0)
+        self.assertEqual(later.quantity, 0)
