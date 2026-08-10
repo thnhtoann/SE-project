@@ -370,5 +370,18 @@
     "total_spent": "Total Spent",
     "visits": "Visits",
     "visits_by_device": "Visits by Device",
-    "top_customers": "Top Customers"
+    "top_customers": "Top Customers",
+    "suppliers": "Suppliers",
+    "supplier_list": "Supplier List",
+    "add_supplier": "Add Supplier",
+    "edit_supplier": "Edit Supplier",
+    "save_changes": "Save Changes",
+    "search_suppliers_placeholder": "Search by name, email, phone",
+    "no_suppliers_found": "No suppliers found.",
+    "supplier_name": "Supplier Name",
+    "enter_supplier_name": "Enter supplier name",
+    "enter_phone": "Enter phone number",
+    "error_supplier_name_required": "Supplier name is required.",
+    "error_address_required": "Address is required.",
+    "confirm_delete_supplier": "Are you sure you want to delete this supplier?"
 }

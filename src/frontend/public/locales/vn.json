@@ -370,5 +370,18 @@
     "total_spent": "Tổng chi tiêu",
     "visits": "Lượt ghé thăm",
     "visits_by_device": "Lượt truy cập theo thiết bị",
-    "top_customers": "Khách hàng hàng đầu"
+    "top_customers": "Khách hàng hàng đầu",
+    "suppliers": "Nhà cung cấp",
+    "supplier_list": "Danh sách nhà cung cấp",
+    "add_supplier": "Thêm nhà cung cấp",
+    "edit_supplier": "Sửa nhà cung cấp",
+    "save_changes": "Lưu thay đổi",
+    "search_suppliers_placeholder": "Tìm theo tên, email, số điện thoại",
+    "no_suppliers_found": "Không tìm thấy nhà cung cấp nào.",
+    "supplier_name": "Tên nhà cung cấp",
+    "enter_supplier_name": "Nhập tên nhà cung cấp",
+    "enter_phone": "Nhập số điện thoại",
+    "error_supplier_name_required": "Vui lòng nhập tên nhà cung cấp.",
+    "error_address_required": "Vui lòng nhập địa chỉ.",
+    "confirm_delete_supplier": "Bạn có chắc chắn muốn xóa nhà cung cấp này không?"
 }
