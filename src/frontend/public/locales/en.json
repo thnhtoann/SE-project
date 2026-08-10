@@ -252,5 +252,13 @@
     "error_category_required": "Category is required.",
     "error_price_required": "Price must be greater than 0.",
     "error_barcode_required": "Barcode is required.",
-    "error_supplier_required": "Supplier is required."
+    "error_supplier_required": "Supplier is required.",
+    "customer_list": "Customer List",
+    "search_customers_placeholder": "Search by name, email, phone",
+    "no_customers_found": "No customers found.",
+    "tier": "Tier",
+    "last_contacted": "Last Contacted",
+    "call": "Call",
+    "customer_status_active": "Active",
+    "customer_status_inactive": "Inactive"
 }

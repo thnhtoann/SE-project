@@ -166,3 +166,16 @@ export interface Product {
     discountPercent?: number;
     discountHistory: DiscountRecord[];
 }
+
+export type CustomerStatus = 'Active' | 'Inactive';
+
+export interface Customer {
+    id: number;
+    photo: string;
+    name: string;
+    email: string;
+    phone: string;
+    tier: MembershipTier;
+    status: CustomerStatus;
+    lastContactedAt: string;
+}
