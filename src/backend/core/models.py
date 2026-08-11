@@ -30,6 +30,15 @@ class StaffManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
+    def create_superuser(self, username, password=None, **extra_fields):
+        """
+        Creates and saves a superuser with the given username and password.
+        """
+        # We simply pass the fields straight to create_user.
+        # Django will automatically prompt for 'full_name' and 'role_id' 
+        # because they are in REQUIRED_FIELDS.
+        return self.create_user(username, password, **extra_fields)
+
 class Staff(AbstractBaseUser):
     staff_id = models.AutoField(primary_key=True)
     username = models.CharField(max_length=50, unique=True)
