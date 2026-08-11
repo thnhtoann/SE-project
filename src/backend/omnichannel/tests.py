@@ -1,8 +1,12 @@
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from rest_framework.test import APIClient, APITestCase
 
-from core.models import Category, Order, OrderDetail, Product, Store
+from core.models import Batch, Category, Order, OrderDetail, Product, Store, StoreInventory
+ 
+from .services import save_normalized_order
 
 
 class OmnichannelWebhookNormalizationTests(APITestCase):
@@ -68,3 +72,54 @@ class OmnichannelWebhookNormalizationTests(APITestCase):
             HTTP_X_GRAB_SIGNATURE="dev-grabmart-secret",
         )
         self.assertEqual(response.status_code, 400)
+
+class OrderRollbackOnFailureTests(APITestCase):
+    """OMNI-4/OMNI-6 TC3: a DB failure partway through order creation must
+    roll back the ENTIRE transaction -- no orphaned Order, no orphaned
+    OrderDetail, and no partial inventory deduction left behind."""
+
+    def setUp(self):
+        # Store + product + one real StoreInventory row with plenty of stock,
+        # so deduct_stock() actually reaches the row.save() step we'll fail.
+        self.store = Store.objects.create(store_name="Test Store", location="HCMC")
+        category = Category.objects.create(category_name="Beverages")
+        self.product = Product.objects.create(
+            barcode="8934673125999",
+            product_name="Iced Tea",
+            base_price=Decimal("1.00"),
+            min_threshold=5,
+            category=category,
+        )
+        today = date.today()
+        batch = Batch.objects.create(
+            product=self.product,
+            manufacture_date=today - timedelta(days=10),
+            expiration_date=today + timedelta(days=30),
+        )
+        self.inventory = StoreInventory.objects.create(store=self.store, batch=batch, quantity=10)
+
+    def test_failure_during_inventory_deduction_rolls_back_order(self):
+        # Simulate a DB failure at the exact moment core.inventory.deduct_stock()
+        # tries to persist the reduced quantity -- i.e. AFTER Order and
+        # OrderDetail have already been tentatively written inside the same
+        # transaction.atomic() block in services.save_normalized_order().
+        normalized_call_args = {
+            "external_order_id": "GM-ROLLBACK-1",
+            "store_id": self.store.store_id,
+            "order_date": datetime(2026, 8, 14, 9, 30, 0),
+            "payment_method": "GrabPay",
+            "items": [{"barcode": self.product.barcode, "quantity": 1, "unit_price": Decimal("1.00")}],
+        }
+
+        with patch(
+            "core.inventory.StoreInventory.save",
+            side_effect=Exception("simulated DB failure"),
+        ):
+            with self.assertRaises(Exception):
+                save_normalized_order("GrabMart", normalized_call_args)
+
+        # Nothing from the failed transaction should have survived the rollback.
+        self.assertEqual(Order.objects.filter(external_order_id="GM-ROLLBACK-1").count(), 0)
+        self.assertEqual(OrderDetail.objects.count(), 0)
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 10)  # completely untouched
