@@ -222,13 +222,28 @@ const Sidebar = () => {
                                             </div>
                                         </Link>
                                     </li>
-                                    <li className="nav-item">
-                                        <Link href="/inventory" className="group">
+                                    <li className="menu nav-item">
+                                        <button type="button" className={`${currentMenu === 'inventory' ? 'active' : ''} nav-link group w-full`} onClick={() => toggleMenu('inventory')}>
                                             <div className="flex items-center">
                                                 <IconArchive className="shrink-0 group-hover:!text-primary" />
                                                 <span className="text-black ltr:pl-3 rtl:pr-3 dark:text-[#506690] dark:group-hover:text-white-dark">{t('inventory')}</span>
                                             </div>
-                                        </Link>
+
+                                            <div className={currentMenu !== 'inventory' ? '-rotate-90 rtl:rotate-90' : ''}>
+                                                <IconCaretDown />
+                                            </div>
+                                        </button>
+
+                                        <AnimateHeight duration={300} height={currentMenu === 'inventory' ? 'auto' : 0}>
+                                            <ul className="sub-menu text-gray-500">
+                                                <li>
+                                                    <Link href="/inventory">{t('product_list')}</Link>
+                                                </li>
+                                                <li>
+                                                    <Link href="/inventory/order-supply">{t('order_supply')}</Link>
+                                                </li>
+                                            </ul>
+                                        </AnimateHeight>
                                     </li>
                                     <li className="nav-item">
                                         <Link href="/procurement/suppliers" className="group">
