@@ -60,6 +60,24 @@ class Staff(AbstractBaseUser):
     def role_name(self):
         return self.role.role_name
 
+    @property
+    def is_staff(self):
+        # Allow all staff members to access the admin panel
+        return True 
+
+    @property
+    def is_superuser(self):
+        # Treat them as a superuser if they have the Admin role
+        return self.role.role_name.lower() == "admin"
+
+    def has_perm(self, perm, obj=None):
+        # Required by Django Admin to check permissions
+        return self.is_superuser
+
+    def has_module_perms(self, app_label):
+        # Required by Django Admin to check app access
+        return self.is_superuser
+
 # 4. Bảng CATEGORY
 class Category(models.Model):
     category_id = models.AutoField(primary_key=True)
