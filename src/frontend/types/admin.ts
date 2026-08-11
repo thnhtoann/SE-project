@@ -191,3 +191,44 @@ export interface PosTransaction {
     status: 'Completed' | 'Pending' | 'Canceled';
     date: string;
 }
+
+export type BusinessSector =
+    | 'Grocery Store'
+    | 'Convenience Store'
+    | 'Supermarket'
+    | 'Minimart'
+    | 'Pharmacy'
+    | 'Restaurant / F&B'
+    | 'Bakery'
+    | 'Electronics'
+    | 'Fashion & Apparel'
+    | 'Other';
+
+export interface StoreInformation {
+    storeName: string;
+    logoUrl: string;
+    businessSector: BusinessSector;
+    taxId: string;
+    phone: string;
+    email: string;
+    address: string;
+    city: string;
+    currency: string;
+    timezone: string;
+    openingTime: string;
+    closingTime: string;
+}
+
+export interface PaymentMethodSetting {
+    method: PaymentMethod;
+    enabled: boolean;
+    accountDetail: string;
+}
+
+// Channel names mirror the values already seeded in mock-dashboards.ts (CHANNEL_REVENUE)
+// so the connected/disconnected list here lines up with what shows in the dashboards.
+export interface MarketplaceChannelSetting {
+    channel: string;
+    connected: boolean;
+    storePartnerId: string;
+}
