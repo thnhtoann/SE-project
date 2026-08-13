@@ -132,6 +132,22 @@ class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
     permission_classes = [IsCashier | IsStoreManager | IsChainManager]
 
+    """
+    OMNI-5: Order list/detail API, doubling as the Omnichannel dashboard's
+    aggregated order feed. GET /api/orders/?channel=<OrderType> filters to
+    one source (POS/GrabMart/ShopeeFood/BeMart); omitting it returns every
+    channel together, most recent first.
+    """
+
+    def get_queryset(self):
+        """Return orders newest-first, optionally filtered to one channel
+        via the `channel` query param (maps to Order.order_type)."""
+        queryset = Order.objects.all().order_by('-order_date')
+        channel = self.request.query_params.get('channel')
+        if channel:
+            queryset = queryset.filter(order_type=channel)
+        return queryset
+
 
 class OrderDetailViewSet(viewsets.ModelViewSet):
     queryset = OrderDetail.objects.all()
