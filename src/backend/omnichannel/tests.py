@@ -2,10 +2,11 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient, APITestCase
 
-from core.models import Batch, Category, Order, OrderDetail, Product, Store, StoreInventory
- 
+from core.models import Batch, Category, Order, OrderDetail, Product, Store, StoreInventory, Role
+
 from .services import save_normalized_order
 
 
@@ -122,4 +123,57 @@ class OrderRollbackOnFailureTests(APITestCase):
         self.assertEqual(Order.objects.filter(external_order_id="GM-ROLLBACK-1").count(), 0)
         self.assertEqual(OrderDetail.objects.count(), 0)
         self.inventory.refresh_from_db()
-        self.assertEqual(self.inventory.quantity, 10)  # completely untouched
+        self.assertEqual(self.inventory.quantity, 10) 
+
+class OrderChannelFilterTests(APITestCase):
+    """OMNI-5: aggregated order list filtering by ?channel="""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.store = Store.objects.create(store_name="Test Store", location="HCMC")
+
+        # 1. Create a Role to satisfy the not-null constraint
+        self.role = Role.objects.create(role_name="Store Manager") 
+        
+        # 2. Get the active user model
+        User = get_user_model()
+        
+        # 3. Create a test user AND pass the role
+        self.user = User.objects.create_user(
+            username="testuser", 
+            password="testpassword",
+            role=self.role 
+        )
+        
+        # 4. Force authenticate the client
+        self.client.force_authenticate(user=self.user)
+
+    def test_no_channel_param_returns_all_orders(self):
+        Order.objects.create(
+            store=self.store, order_date="2026-08-12T09:00:00Z",
+            order_type="GrabMart", payment_method="GrabPay",
+            total_amount="1.00", status="Pending",
+        )
+        Order.objects.create(
+            store=self.store, order_date="2026-08-12T09:05:00Z",
+            order_type="POS", payment_method="Cash",
+            total_amount="2.00", status="Completed",
+        )
+        response = self.client.get("/api/orders/")
+        print(response.status_code, response.data)
+        self.assertEqual(len(response.data), 2)
+
+    def test_channel_param_filters_to_one_source(self):
+        Order.objects.create(
+            store=self.store, order_date="2026-08-12T09:00:00Z",
+            order_type="GrabMart", payment_method="GrabPay",
+            total_amount="1.00", status="Pending",
+        )
+        Order.objects.create(
+            store=self.store, order_date="2026-08-12T09:05:00Z",
+            order_type="BeMart", payment_method="BeMartPay",
+            total_amount="2.00", status="Pending",
+        )
+        response = self.client.get("/api/orders/?channel=GrabMart")
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["order_type"], "GrabMart")
