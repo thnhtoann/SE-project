@@ -30,6 +30,15 @@ class StaffManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
+    def create_superuser(self, username, password=None, **extra_fields):
+        """
+        Creates and saves a superuser with the given username and password.
+        """
+        # We simply pass the fields straight to create_user.
+        # Django will automatically prompt for 'full_name' and 'role_id' 
+        # because they are in REQUIRED_FIELDS.
+        return self.create_user(username, password, **extra_fields)
+
 class Staff(AbstractBaseUser):
     staff_id = models.AutoField(primary_key=True)
     username = models.CharField(max_length=50, unique=True)
@@ -50,6 +59,24 @@ class Staff(AbstractBaseUser):
     @property
     def role_name(self):
         return self.role.role_name
+
+    @property
+    def is_staff(self):
+        # Allow all staff members to access the admin panel
+        return True 
+
+    @property
+    def is_superuser(self):
+        # Treat them as a superuser if they have the Admin role
+        return self.role.role_name.lower() == "admin"
+
+    def has_perm(self, perm, obj=None):
+        # Required by Django Admin to check permissions
+        return self.is_superuser
+
+    def has_module_perms(self, app_label):
+        # Required by Django Admin to check app access
+        return self.is_superuser
 
 # 4. Bảng CATEGORY
 class Category(models.Model):
