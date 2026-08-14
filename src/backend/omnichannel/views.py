@@ -13,12 +13,26 @@ from .services import save_normalized_order, OrderSaveError
 
 logger = logging.getLogger(__name__)
 
+# RBAC-2 note (Member 3): the only user-facing endpoint for this feature —
+# the Omnichannel order dashboard (U007/S20) — is NOT defined in this file.
+# It's the shared `OrderViewSet` in `core/views.py`, which already enforces
+# RBAC via `permission_classes = [IsCashier | IsStoreManager | IsChainManager]`
+# (core/permissions.py, Member 1). Nothing further to add here for that part.
+
 
 @method_decorator(csrf_exempt, name='dispatch')
 class BaseWebhookView(APIView):
     """
     Shared behavior for every omnichannel platform webhook.
     Subclasses set `platform_name` and implement `verify_signature`.
+
+    RBAC-2 note (Member 3): these webhook endpoints are called by external
+    delivery platforms (GrabMart/ShopeeFood/BeMart), not by logged-in staff,
+    so there is no Staff/JWT to check `IsCashier`/`IsStoreManager`/
+    `IsChainManager` against. Per the project constitution (Principle II),
+    machine-to-machine webhook auth is a documented exception to user-facing
+    JWT RBAC — signature verification below (`verify_signature`) is this
+    endpoint's equivalent of an auth/permission check, not a gap.
     """
     platform_name = "unknown"
     normalizer = None  # one of normalize_grabmart/normalize_shopeefood/normalize_bemart

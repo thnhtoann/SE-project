@@ -25,6 +25,14 @@ class OmnichannelWebhookNormalizationTests(APITestCase):
             min_threshold=10,
             category=category,
         )
+        # OMNI-3 routes every webhook order through deduct_stock(), so these
+        # tests need real stock on hand
+        batch = Batch.objects.create(
+            product=self.product,
+            manufacture_date=date.today() - timedelta(days=10),
+            expiration_date=date.today() + timedelta(days=30),
+        )
+        StoreInventory.objects.create(store=self.store, batch=batch, quantity=1000)
 
     def test_grabmart_webhook_creates_order_and_details(self):
         payload = {
