@@ -1,6 +1,7 @@
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -16,7 +17,7 @@ from .models import (
 from .permissions import IsCashier, IsChainManager, IsStoreManager
 from .serializers import (
     RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
-    PurchaseOrderSerializer, PurchaseOrderDetailSerializer, CategorySerializer,
+    PurchaseOrderSerializer, PurchaseOrderDetailSerializer, ShipmentSerializer, CategorySerializer,
     ProductSerializer, BatchSerializer, StoreInventorySerializer,
     OrderSerializer, OrderDetailSerializer
 )
@@ -92,15 +93,99 @@ class StaffViewSet(viewsets.ModelViewSet):
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
-    queryset = PurchaseOrder.objects.all()
+    queryset = PurchaseOrder.objects.all().order_by('-order_date', '-po_id')
     serializer_class = PurchaseOrderSerializer
     permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status_param = self.request.query_params.get('status')
+        supplier_param = self.request.query_params.get('supplier')
+
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param)
+        if supplier_param:
+            queryset = queryset.filter(supplier_id=supplier_param)
+
+        return queryset
+
+    @action(detail=True, methods=['patch', 'put'], url_path='status', url_name='status')
+    def update_status(self, request, pk=None):
+        purchase_order = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response({'status': ['Trạng thái (status) là bắt buộc.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(purchase_order, data={'status': new_status}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class PurchaseOrderDetailViewSet(viewsets.ModelViewSet):
     queryset = PurchaseOrderDetail.objects.all()
     serializer_class = PurchaseOrderDetailSerializer
     permission_classes = [IsStoreManager | IsChainManager]
+
+
+class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    U010 / PROC-3: Shipment Status Tracking API for incoming purchase orders.
+    Provides tracking info (supplier, dates, status, overdue flag, items)
+    and enables status updates & overdue detection.
+    """
+    queryset = PurchaseOrder.objects.all().order_by('-order_date', '-po_id')
+    serializer_class = ShipmentSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_queryset(self):
+        # Auto sweep overdue orders on list/retrieve
+        for order in PurchaseOrder.objects.filter(status=PurchaseOrder.STATUS_PREPARING):
+            order.check_and_update_overdue()
+
+        queryset = super().get_queryset()
+        status_param = self.request.query_params.get('status')
+        supplier_param = self.request.query_params.get('supplier')
+        overdue_param = self.request.query_params.get('overdue')
+
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param)
+        if supplier_param:
+            queryset = queryset.filter(supplier_id=supplier_param)
+        if overdue_param is not None:
+            if overdue_param.lower() in ['true', '1']:
+                from datetime import date
+                queryset = queryset.filter(
+                    models.Q(status=PurchaseOrder.STATUS_DELAYED) |
+                    models.Q(status=PurchaseOrder.STATUS_PREPARING, expected_delivery_date__lt=date.today())
+                )
+
+        return queryset
+
+    @action(detail=True, methods=['patch', 'put'], url_path='status', url_name='status')
+    def update_status(self, request, pk=None):
+        shipment = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response({'status': ['Trạng thái (status) là bắt buộc.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = PurchaseOrderSerializer(shipment, data={'status': new_status}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ShipmentSerializer(shipment).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='check-overdue', url_name='check-overdue')
+    def check_overdue(self, request):
+        updated_count = 0
+        for order in PurchaseOrder.objects.filter(status=PurchaseOrder.STATUS_PREPARING):
+            if order.check_and_update_overdue():
+                updated_count += 1
+        return Response({
+            'detail': f'Đã cập nhật {updated_count} lô hàng trễ hạn sang trạng thái Delayed.',
+            'updated_count': updated_count
+        }, status=status.HTTP_200_OK)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):

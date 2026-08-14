@@ -140,18 +140,46 @@ class Supplier(models.Model):
 
 # 9. Bảng PURCHASE_ORDER
 class PurchaseOrder(models.Model):
+    STATUS_PREPARING = 'Preparing'
+    STATUS_DELIVERED = 'Delivered'
+    STATUS_DELAYED = 'Delayed'
+
+    STATUS_CHOICES = [
+        (STATUS_PREPARING, 'Preparing'),
+        (STATUS_DELIVERED, 'Delivered'),
+        (STATUS_DELAYED, 'Delayed'),
+    ]
+
     po_id = models.AutoField(primary_key=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT)
     order_date = models.DateField()
     expected_delivery_date = models.DateField(null=True, blank=True)
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=STATUS_PREPARING)
 
     def __str__(self):
         return f"PO {self.po_id} - {self.supplier.supplier_name} ({self.status})"
 
+    @property
+    def total_amount(self):
+        return sum(item.order_qty * item.unit_cost for item in self.details.all())
+
+    @property
+    def is_overdue(self):
+        from datetime import date
+        if self.status == self.STATUS_PREPARING and self.expected_delivery_date:
+            return self.expected_delivery_date < date.today()
+        return False
+
+    def check_and_update_overdue(self):
+        if self.is_overdue:
+            self.status = self.STATUS_DELAYED
+            self.save(update_fields=['status'])
+            return True
+        return False
+
 # 10. Bảng PURCHASE_ORDER_DETAIL
 class PurchaseOrderDetail(models.Model):
-    po = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE)
+    po = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='details')
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     order_qty = models.IntegerField()
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
