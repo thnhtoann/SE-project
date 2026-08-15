@@ -1,5 +1,5 @@
 """
-FCST-5: GET /api/forecasting/forecast/
+FCST-5: GET /api/procurement/forecast/
 
 Serves cached DemandForecast rows (produced out-of-band by the `run_demand_forecast`
 management command - see forecasting/services.py) plus reorder-point recommendations computed
