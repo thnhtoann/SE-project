@@ -18,4 +18,5 @@ urlpatterns = [
     path('api/login/', CustomLoginView.as_view(), name='login'),
     path('api/logout/', LogoutView.as_view(), name='logout'),
     path('api/webhooks/', include('omnichannel.urls')),
+    path('api/forecasting/', include('forecasting.urls')),
 ]
