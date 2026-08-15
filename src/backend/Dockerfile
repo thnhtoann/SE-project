@@ -12,6 +12,9 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Explicitly build CmdStan (Prophet's Stan backend). pip install prophet is *supposed* to do
+RUN install_cmdstan
+
 COPY . .
 
 EXPOSE 8000
