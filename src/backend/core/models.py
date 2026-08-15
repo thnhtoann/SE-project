@@ -221,3 +221,20 @@ class OrderDetail(models.Model):
 
     def __str__(self):
         return f"Order {self.order.order_id} - {self.product.product_name}: {self.quantity}"
+
+# 13. Bảng INVENTORY_ALERT
+class InventoryAlert(models.Model):
+    alert_id = models.AutoField(primary_key=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='alerts')
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, null=True, blank=True, related_name='alerts')
+    current_stock = models.IntegerField()
+    min_threshold = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_resolved = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        store_str = self.store.store_name if self.store else 'All Stores'
+        return f"Alert {self.alert_id} - {self.product.product_name} at {store_str} (Stock: {self.current_stock}/{self.min_threshold})"

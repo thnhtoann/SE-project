@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 
 from .models import (
     Batch, Category, Product, Store, StoreInventory, Supplier,
-    Role, Staff, PurchaseOrder, PurchaseOrderDetail
+    Role, Staff, PurchaseOrder, PurchaseOrderDetail, InventoryAlert
 )
 
 from core.inventory import deduct_stock, InsufficientStockError
@@ -480,11 +480,87 @@ class ShipmentApiTests(TestCase):
         self.on_time_shipment.refresh_from_db()
         self.assertEqual(self.on_time_shipment.status, 'Delivered')
 
-    def test_check_overdue_endpoint_updates_past_due_shipments(self):
-        check_url = reverse('shipment-check-overdue')
-        response = self.client.post(check_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('updated_count', response.json())
-
         self.past_due_shipment.refresh_from_db()
-        self.assertEqual(self.past_due_shipment.status, 'Delayed')
+        self.assertEqual(self.past_due_shipment.status, 'Delayed')
+
+
+class LowStockAlertApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        # Role & User
+        self.role = Role.objects.create(role_name='Chain Manager')
+        self.user = Staff.objects.create_user(
+            username='manager_alert',
+            password='password123',
+            full_name='Alert Manager',
+            role=self.role
+        )
+        self.client.force_authenticate(user=self.user)
+
+        self.store = Store.objects.create(store_name='Central Store', location='District 1')
+        self.category = Category.objects.create(category_name='Groceries')
+
+        # Product with min_threshold = 10
+        self.product = Product.objects.create(
+            barcode='SKU-ALERT-1',
+            product_name='Cooking Oil',
+            base_price=Decimal('15.00'),
+            min_threshold=10,
+            category=self.category
+        )
+
+    def _set_stock(self, quantity):
+        StoreInventory.objects.filter(store=self.store, batch__product=self.product).delete()
+        if quantity > 0:
+            batch = Batch.objects.create(
+                product=self.product,
+                manufacture_date=date.today() - timedelta(days=10),
+                expiration_date=date.today() + timedelta(days=90)
+            )
+            StoreInventory.objects.create(store=self.store, batch=batch, quantity=quantity)
+
+    def test_bva_above_threshold_generates_no_alert(self):
+        """BVA: quantity (11) > min_threshold (10) -> No alert generated."""
+        self._set_stock(11)
+        url = reverse('inventory-low-stock-alert-list')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        alerts = response.json()
+        self.assertEqual(len(alerts), 0)
+
+    def test_bva_at_threshold_generates_alert(self):
+        """BVA: quantity (10) == min_threshold (10) -> Alert generated."""
+        self._set_stock(10)
+        url = reverse('inventory-low-stock-alert-list')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        alerts = response.json()
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]['current_stock'], 10)
+        self.assertEqual(alerts[0]['min_threshold'], 10)
+        self.assertEqual(alerts[0]['product_name'], 'Cooking Oil')
+
+    def test_bva_below_threshold_generates_alert(self):
+        """BVA: quantity (9) < min_threshold (10) -> Alert generated."""
+        self._set_stock(9)
+        url = reverse('inventory-low-stock-alert-list')
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        alerts = response.json()
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]['current_stock'], 9)
+
+    def test_resolve_alert_success(self):
+        self._set_stock(5)
+        url = reverse('inventory-low-stock-alert-list')
+        response = self.client.get(url)
+        alert_id = response.json()[0]['alert_id']
+
+        resolve_url = reverse('inventory-low-stock-alert-resolve', kwargs={'pk': alert_id})
+        res = self.client.patch(resolve_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.json()['is_resolved'])

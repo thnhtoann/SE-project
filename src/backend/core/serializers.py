@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
-    Category, Product, Batch, StoreInventory, Order, OrderDetail
+    Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert
 )
 
 
@@ -176,3 +176,18 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderDetail
         fields = '__all__'
+
+
+class InventoryAlertSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    barcode = serializers.CharField(source='product.barcode', read_only=True)
+    category_name = serializers.CharField(source='product.category.category_name', read_only=True)
+    store_name = serializers.CharField(source='store.store_name', read_only=True, default=None)
+
+    class Meta:
+        model = InventoryAlert
+        fields = [
+            'alert_id', 'product', 'product_name', 'barcode', 'category_name',
+            'store', 'store_name', 'current_stock', 'min_threshold',
+            'created_at', 'is_resolved'
+        ]

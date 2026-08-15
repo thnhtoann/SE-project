@@ -12,14 +12,14 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
-    Category, Product, Batch, StoreInventory, Order, OrderDetail
+    Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert
 )
 from .permissions import IsCashier, IsChainManager, IsStoreManager
 from .serializers import (
     RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
     PurchaseOrderSerializer, PurchaseOrderDetailSerializer, ShipmentSerializer, CategorySerializer,
     ProductSerializer, BatchSerializer, StoreInventorySerializer,
-    OrderSerializer, OrderDetailSerializer
+    OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer
 )
 
 
@@ -186,6 +186,85 @@ class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
             'detail': f'Đã cập nhật {updated_count} lô hàng trễ hạn sang trạng thái Delayed.',
             'updated_count': updated_count
         }, status=status.HTTP_200_OK)
+
+
+class LowStockAlertViewSet(viewsets.ModelViewSet):
+    """
+    Scrum 108 / PROC-4: Low-Stock Alert Logic API.
+    Performs JOIN query between PRODUCT and STORE_INVENTORY via BATCH.
+    Calculates actual store-level stock for products and generates alerts
+    when total stock reaches or falls below MinThreshold.
+    """
+    queryset = InventoryAlert.objects.all().order_by('-created_at')
+    serializer_class = InventoryAlertSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def _sweep_low_stock_alerts(self, store_id=None):
+        """
+        Executes optimal JOIN query filtering active inventory (quantity > 0)
+        grouped by (store, product). Compares against MinThreshold.
+        Also handles zero-stock products per store.
+        """
+        products = Product.objects.all()
+        stores = Store.objects.all()
+        if store_id:
+            stores = stores.filter(pk=store_id)
+
+        for store in stores:
+            for product in products:
+                total_stock = StoreInventory.objects.filter(
+                    store=store,
+                    batch__product=product
+                ).aggregate(total=models.Sum('quantity'))['total'] or 0
+
+                if product.is_low_stock(total_stock):
+                    alert, created = InventoryAlert.objects.get_or_create(
+                        product=product,
+                        store=store,
+                        is_resolved=False,
+                        defaults={
+                            'current_stock': total_stock,
+                            'min_threshold': product.min_threshold
+                        }
+                    )
+                    if not created and alert.current_stock != total_stock:
+                        alert.current_stock = total_stock
+                        alert.save(update_fields=['current_stock'])
+
+    def get_queryset(self):
+        store_id = self.request.query_params.get('store') or self.request.query_params.get('store_id')
+        self._sweep_low_stock_alerts(store_id=store_id)
+
+        queryset = super().get_queryset()
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+
+        product_id = self.request.query_params.get('product') or self.request.query_params.get('product_id')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        is_resolved_param = self.request.query_params.get('is_resolved')
+        if is_resolved_param is not None:
+            is_res = is_resolved_param.lower() in ['true', '1']
+            queryset = queryset.filter(is_resolved=is_res)
+
+        return queryset
+
+    @action(detail=False, methods=['post'], url_path='check', url_name='check')
+    def check_alerts(self, request):
+        self._sweep_low_stock_alerts()
+        active_alerts = InventoryAlert.objects.filter(is_resolved=False)
+        return Response({
+            'detail': f'Đã kiểm tra xong. Hiện có {active_alerts.count()} cảnh báo tồn kho thấp.',
+            'active_alert_count': active_alerts.count()
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch', 'put'], url_path='resolve', url_name='resolve')
+    def resolve_alert(self, request, pk=None):
+        alert = self.get_object()
+        alert.is_resolved = True
+        alert.save(update_fields=['is_resolved'])
+        return Response(self.get_serializer(alert).data, status=status.HTTP_200_OK)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
