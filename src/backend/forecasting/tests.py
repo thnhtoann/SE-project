@@ -6,9 +6,10 @@ fits - that would make this suite slow and flaky in CI. If/when we add tests for
 mock Prophet.fit/predict rather than running a real training job in the test suite.
 """
 from django.test import TestCase
+from django.core.management import call_command
 
 from .po_logic import evaluate_reorder
-
+from .models import DailySalesRecord
 
 class EvaluateReorderTests(TestCase):
     """FCST-4: reorder-point logic."""
@@ -38,3 +39,14 @@ class EvaluateReorderTests(TestCase):
     def test_recommended_quantity_never_negative(self):
         result = evaluate_reorder(current_stock=1000, expected_demand=1, safety_stock_level=1)
         self.assertEqual(result['recommended_order_quantity'], 0)
+
+class GenerateSalesDataCommandTests(TestCase):
+    """PROC-6: smoke test only. Real usage is --days 730 --products 20, but
+    that's too slow for the test suite, so this runs against a tiny synthetic
+    dataset just to check the DB-write path works."""
+
+    def test_command_bulk_creates_daily_sales_records(self):
+        call_command('generate_sales_data', days=5, products=2)
+        self.assertTrue(DailySalesRecord.objects.exists())
+        # 2 channel rows (In-store + Online) per product per day
+        self.assertEqual(DailySalesRecord.objects.count(), 5 * 2 * 2)

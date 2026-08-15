@@ -4,10 +4,9 @@ FCST-3: Batch job that fits a Prophet model per product and caches the result.
 Run manually with:
     docker compose exec backend python manage.py run_demand_forecast
 
-This is NOT yet wired to a scheduler (no Celery/cron configured in this project - see
-CLAUDE.md/procurement plan.md's own open note on the same gap). Until it is, re-run this
-command manually (e.g. once a day) to keep DemandForecast fresh; the API always serves
-whatever was cached by the last run, it never trains live.
+Needs DailySalesRecord populated first -- either via
+    docker compose exec backend python manage.py generate_sales_data
+(synthetic demo data) or `load_sales_history` (from an existing CSV export).
 """
 import logging
 

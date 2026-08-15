@@ -4,21 +4,16 @@ generate_synthetic_sales_data.py
 Generates a synthetic daily sales history dataset for a Smart Procurement
 forecasting model (Convenience Store Chain Management System).
 
-SCOPE NOTE: Smart Procurement / forecasting is Member 2's module per
-PHÂN CÔNG NHIỆM VỤ CODE.md (M3 = Omnichannel Hub & ACID Transactions).
-This script is exploratory tooling, not part of the omnichannel/ deliverables.
-
-v2 fixes vs the first draft:
-  - units_sold can no longer exceed current_stock on that day (demand is
-    now capped by what's actually on hand -- see simulate_demand_and_inventory).
-  - Added `category` (per-product feature, useful for a forecasting model).
-  - Added `is_promo_day` (exposes the holiday/promo spikes as an explicit
-    feature instead of leaving the model to guess at unexplained noise).
-
 Usage:
     python generate_synthetic_sales_data.py
 Produces:
     retail_sales_history.csv
+
+NOTE: for the real deliverable (bulk-writing straight into DailySalesRecord),
+use the Django management command instead:
+    docker compose exec backend python manage.py generate_sales_data
+This script stays as a standalone CSV-export tool for quick local inspection
+of the synthetic data outside the DB.
 """
 
 import numpy as np
