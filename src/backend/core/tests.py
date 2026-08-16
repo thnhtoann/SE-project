@@ -16,6 +16,12 @@ from core.inventory import deduct_stock, InsufficientStockError
 class SupplierApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        self.role = Role.objects.create(role_name='Chain Manager')
+        self.user = Staff.objects.create_user(
+            username='supplier_mgr', password='password123', full_name='Supplier Mgr', role=self.role
+        )
+        self.client.force_authenticate(user=self.user)
+
         self.supplier = Supplier.objects.create(
             supplier_name='Alpha Supplies',
             contact_phone='0901234567',
@@ -563,4 +569,93 @@ class LowStockAlertApiTests(TestCase):
         resolve_url = reverse('inventory-low-stock-alert-resolve', kwargs={'pk': alert_id})
         res = self.client.patch(resolve_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertTrue(res.json()['is_resolved'])
+        self.assertTrue(res.json()['is_resolved'])
+
+
+class RbacProcurementApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        # Roles
+        self.chain_manager_role = Role.objects.create(role_name='Chain Manager')
+        self.store_manager_role = Role.objects.create(role_name='Store Manager')
+        self.cashier_role = Role.objects.create(role_name='Cashier')
+
+        # Users
+        self.chain_manager = Staff.objects.create_user(
+            username='chain_mgr', password='password123', full_name='Chain Mgr', role=self.chain_manager_role
+        )
+        self.store_manager = Staff.objects.create_user(
+            username='store_mgr', password='password123', full_name='Store Mgr', role=self.store_manager_role
+        )
+        self.cashier = Staff.objects.create_user(
+            username='cashier_user', password='password123', full_name='Cashier User', role=self.cashier_role
+        )
+
+        # Supplier & Purchase Order
+        self.supplier = Supplier.objects.create(
+            supplier_name='RBAC Supplier', contact_phone='0900000000'
+        )
+        self.po = PurchaseOrder.objects.create(
+            supplier=self.supplier, order_date=date.today(), status='Preparing'
+        )
+
+    def test_unauthenticated_request_returns_401(self):
+        url = reverse('supplier-list')
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_cashier_cannot_access_supplier_or_procurement_apis(self):
+        self.client.force_authenticate(user=self.cashier)
+
+        res_sup = self.client.get(reverse('supplier-list'))
+        self.assertEqual(res_sup.status_code, status.HTTP_403_FORBIDDEN)
+
+        res_po = self.client.get(reverse('purchaseorder-list'))
+        self.assertEqual(res_po.status_code, status.HTTP_403_FORBIDDEN)
+
+        res_shipment = self.client.get(reverse('shipment-list'))
+        self.assertEqual(res_shipment.status_code, status.HTTP_403_FORBIDDEN)
+
+        res_alert = self.client.get(reverse('inventory-low-stock-alert-list'))
+        self.assertEqual(res_alert.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_store_manager_can_view_supplier_but_cannot_modify(self):
+        self.client.force_authenticate(user=self.store_manager)
+
+        # GET Supplier allowed
+        res_get = self.client.get(reverse('supplier-list'))
+        self.assertEqual(res_get.status_code, status.HTTP_200_OK)
+
+        # POST Supplier forbidden
+        res_post = self.client.post(
+            reverse('supplier-list'),
+            {'supplier_name': 'New Sup', 'contact_phone': '0911'},
+            format='json'
+        )
+        self.assertEqual(res_post.status_code, status.HTTP_403_FORBIDDEN)
+
+        # DELETE Supplier forbidden
+        res_del = self.client.delete(reverse('supplier-detail', kwargs={'pk': self.supplier.pk}))
+        self.assertEqual(res_del.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_store_manager_cannot_delete_purchase_order(self):
+        self.client.force_authenticate(user=self.store_manager)
+
+        res_del = self.client.delete(reverse('purchaseorder-detail', kwargs={'pk': self.po.pk}))
+        self.assertEqual(res_del.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_chain_manager_has_full_access(self):
+        self.client.force_authenticate(user=self.chain_manager)
+
+        # POST Supplier allowed
+        res_post = self.client.post(
+            reverse('supplier-list'),
+            {'supplier_name': 'Chain Sup', 'contact_phone': '0922222222'},
+            format='json'
+        )
+        self.assertEqual(res_post.status_code, status.HTTP_201_CREATED)
+
+        # DELETE PO allowed
+        res_del = self.client.delete(reverse('purchaseorder-detail', kwargs={'pk': self.po.pk}))
+        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)

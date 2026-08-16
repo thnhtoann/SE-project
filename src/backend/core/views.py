@@ -29,6 +29,11 @@ class HealthCheckView(APIView):
 
 
 class SupplierListCreateView(APIView):
+    def get_permissions(self):
+        if self.request.method in ['POST', 'PUT', 'DELETE']:
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
+
     def get(self, request):
         suppliers = Supplier.objects.all().order_by('supplier_id')
         serializer = SupplierSerializer(suppliers, many=True)
@@ -43,6 +48,11 @@ class SupplierListCreateView(APIView):
 
 
 class SupplierDetailView(APIView):
+    def get_permissions(self):
+        if self.request.method in ['POST', 'PUT', 'DELETE']:
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
+
     def get_object(self, pk):
         return Supplier.objects.filter(pk=pk).first()
 
@@ -97,6 +107,11 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     serializer_class = PurchaseOrderSerializer
     permission_classes = [IsStoreManager | IsChainManager]
 
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
+
     def get_queryset(self):
         queryset = super().get_queryset()
         status_param = self.request.query_params.get('status')
@@ -127,6 +142,11 @@ class PurchaseOrderDetailViewSet(viewsets.ModelViewSet):
     queryset = PurchaseOrderDetail.objects.all()
     serializer_class = PurchaseOrderDetailSerializer
     permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_permissions(self):
+        if self.action in ['destroy', 'create', 'update', 'partial_update']:
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
 
 
 class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
@@ -366,36 +386,34 @@ class OrderDetailViewSet(viewsets.ModelViewSet):
 
 
 class CustomLoginSerializer(TokenObtainPairSerializer):
-    def validate(self, attrs):
-        # Lấy tên tài khoản người dùng đang cố đăng nhập
-        username = attrs.get(self.username_field)
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['username'] = user.username
+        token['full_name'] = user.full_name
+        token['role_name'] = user.role_name
+        return token
 
-        # Tạo một "hộp lưu trữ" trong bộ nhớ tạm để đếm số lần sai của riêng user này
+    def validate(self, attrs):
+        username = attrs.get(self.username_field)
         cache_key = f"login_attempts_{username}"
         attempts = cache.get(cache_key, 0)
 
-        # 1. Kiểm tra xem user này đã bị khóa chưa (nhập sai >= 3 lần)
         if attempts >= 3:
             raise ValidationError(
                 {"detail": "Tài khoản đã bị khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút."}
             )
 
-        # 2. Thử xác thực tài khoản & mật khẩu
         try:
-            # Gọi hàm gốc của JWT để kiểm tra
             data = super().validate(attrs)
-
-            # Nếu mật khẩu ĐÚNG -> Xóa sổ nợ, reset số lần sai về 0
             cache.delete(cache_key)
+            data['username'] = self.user.username
+            data['full_name'] = self.user.full_name
+            data['role_name'] = self.user.role_name
             return data
-
         except Exception:
-            # Nếu mật khẩu SAI -> Tăng số lần sai lên 1
             attempts += 1
-            # Lưu lại vào Cache. Thiết lập timeout=900 (tương đương 15 phút).
-            # Sau 15 phút, Django sẽ tự động xóa bản ghi này để mở khóa.
             cache.set(cache_key, attempts, timeout=900)
-
             raise ValidationError(
                 {"detail": f"Sai thông tin đăng nhập! Bạn còn {3 - attempts} lần thử."}
             )
