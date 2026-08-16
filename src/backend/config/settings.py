@@ -119,3 +119,4 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=4),
 }
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
