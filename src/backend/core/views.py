@@ -1,7 +1,424 @@
+from django.core.cache import cache
+from django.db import models, transaction
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+from .models import (
+    Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
+    Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert
+)
+from .permissions import IsCashier, IsChainManager, IsStoreManager
+from .serializers import (
+    RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
+    PurchaseOrderSerializer, PurchaseOrderDetailSerializer, ShipmentSerializer, CategorySerializer,
+    ProductSerializer, BatchSerializer, StoreInventorySerializer,
+    OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer
+)
 
 
 class HealthCheckView(APIView):
     def get(self, request):
         return Response({'status': 'ok'})
+
+
+class SupplierListCreateView(APIView):
+    def get(self, request):
+        suppliers = Supplier.objects.all().order_by('supplier_id')
+        serializer = SupplierSerializer(suppliers, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = SupplierSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class SupplierDetailView(APIView):
+    def get_object(self, pk):
+        return Supplier.objects.filter(pk=pk).first()
+
+    def get(self, request, pk):
+        supplier = self.get_object(pk)
+        if supplier is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer = SupplierSerializer(supplier)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        supplier = self.get_object(pk)
+        if supplier is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer = SupplierSerializer(supplier, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        supplier = self.get_object(pk)
+        if supplier is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        supplier.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RoleViewSet(viewsets.ModelViewSet):
+    queryset = Role.objects.all()
+    serializer_class = RoleSerializer
+    permission_classes = [IsChainManager]
+
+
+class StoreViewSet(viewsets.ModelViewSet):
+    queryset = Store.objects.all()
+    serializer_class = StoreSerializer
+    permission_classes = [IsChainManager]
+
+
+class StaffViewSet(viewsets.ModelViewSet):
+    queryset = Staff.objects.all()
+    serializer_class = StaffSerializer
+    permission_classes = [IsChainManager]
+
+
+class PurchaseOrderViewSet(viewsets.ModelViewSet):
+    queryset = PurchaseOrder.objects.all().order_by('-order_date', '-po_id')
+    serializer_class = PurchaseOrderSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status_param = self.request.query_params.get('status')
+        supplier_param = self.request.query_params.get('supplier')
+
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param)
+        if supplier_param:
+            queryset = queryset.filter(supplier_id=supplier_param)
+
+        return queryset
+
+    @action(detail=True, methods=['patch', 'put'], url_path='status', url_name='status')
+    def update_status(self, request, pk=None):
+        purchase_order = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response({'status': ['Trạng thái (status) là bắt buộc.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(purchase_order, data={'status': new_status}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PurchaseOrderDetailViewSet(viewsets.ModelViewSet):
+    queryset = PurchaseOrderDetail.objects.all()
+    serializer_class = PurchaseOrderDetailSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+
+class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    U010 / PROC-3: Shipment Status Tracking API for incoming purchase orders.
+    Provides tracking info (supplier, dates, status, overdue flag, items)
+    and enables status updates & overdue detection.
+    """
+    queryset = PurchaseOrder.objects.all().order_by('-order_date', '-po_id')
+    serializer_class = ShipmentSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_queryset(self):
+        # Auto sweep overdue orders on list/retrieve
+        for order in PurchaseOrder.objects.filter(status=PurchaseOrder.STATUS_PREPARING):
+            order.check_and_update_overdue()
+
+        queryset = super().get_queryset()
+        status_param = self.request.query_params.get('status')
+        supplier_param = self.request.query_params.get('supplier')
+        overdue_param = self.request.query_params.get('overdue')
+
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param)
+        if supplier_param:
+            queryset = queryset.filter(supplier_id=supplier_param)
+        if overdue_param is not None:
+            if overdue_param.lower() in ['true', '1']:
+                from datetime import date
+                queryset = queryset.filter(
+                    models.Q(status=PurchaseOrder.STATUS_DELAYED) |
+                    models.Q(status=PurchaseOrder.STATUS_PREPARING, expected_delivery_date__lt=date.today())
+                )
+
+        return queryset
+
+    @action(detail=True, methods=['patch', 'put'], url_path='status', url_name='status')
+    def update_status(self, request, pk=None):
+        shipment = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response({'status': ['Trạng thái (status) là bắt buộc.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = PurchaseOrderSerializer(shipment, data={'status': new_status}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ShipmentSerializer(shipment).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='check-overdue', url_name='check-overdue')
+    def check_overdue(self, request):
+        updated_count = 0
+        for order in PurchaseOrder.objects.filter(status=PurchaseOrder.STATUS_PREPARING):
+            if order.check_and_update_overdue():
+                updated_count += 1
+        return Response({
+            'detail': f'Đã cập nhật {updated_count} lô hàng trễ hạn sang trạng thái Delayed.',
+            'updated_count': updated_count
+        }, status=status.HTTP_200_OK)
+
+
+class LowStockAlertViewSet(viewsets.ModelViewSet):
+    """
+    Scrum 108 / PROC-4: Low-Stock Alert Logic API.
+    Performs JOIN query between PRODUCT and STORE_INVENTORY via BATCH.
+    Calculates actual store-level stock for products and generates alerts
+    when total stock reaches or falls below MinThreshold.
+    """
+    queryset = InventoryAlert.objects.all().order_by('-created_at')
+    serializer_class = InventoryAlertSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def _sweep_low_stock_alerts(self, store_id=None):
+        """
+        Executes optimal JOIN query filtering active inventory (quantity > 0)
+        grouped by (store, product). Compares against MinThreshold.
+        Also handles zero-stock products per store.
+        """
+        products = Product.objects.all()
+        stores = Store.objects.all()
+        if store_id:
+            stores = stores.filter(pk=store_id)
+
+        for store in stores:
+            for product in products:
+                total_stock = StoreInventory.objects.filter(
+                    store=store,
+                    batch__product=product
+                ).aggregate(total=models.Sum('quantity'))['total'] or 0
+
+                if product.is_low_stock(total_stock):
+                    alert, created = InventoryAlert.objects.get_or_create(
+                        product=product,
+                        store=store,
+                        is_resolved=False,
+                        defaults={
+                            'current_stock': total_stock,
+                            'min_threshold': product.min_threshold
+                        }
+                    )
+                    if not created and alert.current_stock != total_stock:
+                        alert.current_stock = total_stock
+                        alert.save(update_fields=['current_stock'])
+
+    def get_queryset(self):
+        store_id = self.request.query_params.get('store') or self.request.query_params.get('store_id')
+        self._sweep_low_stock_alerts(store_id=store_id)
+
+        queryset = super().get_queryset()
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+
+        product_id = self.request.query_params.get('product') or self.request.query_params.get('product_id')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        is_resolved_param = self.request.query_params.get('is_resolved')
+        if is_resolved_param is not None:
+            is_res = is_resolved_param.lower() in ['true', '1']
+            queryset = queryset.filter(is_resolved=is_res)
+
+        return queryset
+
+    @action(detail=False, methods=['post'], url_path='check', url_name='check')
+    def check_alerts(self, request):
+        self._sweep_low_stock_alerts()
+        active_alerts = InventoryAlert.objects.filter(is_resolved=False)
+        return Response({
+            'detail': f'Đã kiểm tra xong. Hiện có {active_alerts.count()} cảnh báo tồn kho thấp.',
+            'active_alert_count': active_alerts.count()
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch', 'put'], url_path='resolve', url_name='resolve')
+    def resolve_alert(self, request, pk=None):
+        alert = self.get_object()
+        alert.is_resolved = True
+        alert.save(update_fields=['is_resolved'])
+        return Response(self.get_serializer(alert).data, status=status.HTTP_200_OK)
+
+
+class CategoryViewSet(viewsets.ModelViewSet):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+
+class ProductViewSet(viewsets.ModelViewSet):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+
+class BatchViewSet(viewsets.ModelViewSet):
+    queryset = Batch.objects.all()
+    serializer_class = BatchSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+
+class StoreInventoryViewSet(viewsets.ModelViewSet):
+    queryset = StoreInventory.objects.all()
+    serializer_class = StoreInventorySerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
+    permission_classes = [IsCashier | IsStoreManager | IsChainManager]
+
+    """
+    OMNI-5: Order list/detail API, doubling as the Omnichannel dashboard's
+    aggregated order feed. GET /api/orders/?channel=<OrderType> filters to
+    one source (POS/GrabMart/ShopeeFood/BeMart); omitting it returns every
+    channel together, most recent first.
+    """
+
+    def get_queryset(self):
+        """Return orders newest-first, optionally filtered to one channel
+        via the `channel` query param (maps to Order.order_type)."""
+        queryset = Order.objects.all().order_by('-order_date')
+        channel = self.request.query_params.get('channel')
+        if channel:
+            queryset = queryset.filter(order_type=channel)
+        return queryset
+
+
+class OrderDetailViewSet(viewsets.ModelViewSet):
+    queryset = OrderDetail.objects.all()
+    serializer_class = OrderDetailSerializer
+    permission_classes = [IsCashier | IsStoreManager | IsChainManager]
+
+    # Ghi đè hàm perform_create để xử lý logic khi có 1 đơn hàng mới được tạo
+    def perform_create(self, serializer):
+        # Dùng transaction.atomic() để đảm bảo toàn vẹn ACID.
+        # Nếu trừ kho bị lỗi giữa chừng, toàn bộ giao dịch sẽ bị hủy (Rollback).
+        with transaction.atomic():
+            # 1. Lấy thông tin từ request khách gửi lên
+            order = serializer.validated_data['order']
+            product = serializer.validated_data['product']
+            sell_qty = serializer.validated_data['quantity']
+            store = order.store
+
+            # 2. Lấy danh sách tồn kho của sản phẩm này tại cửa hàng đó,
+            # chỉ lấy lô còn hàng (>0) và SẮP XẾP theo ngày hết hạn tăng dần (Cận date bán trước)
+            inventories = StoreInventory.objects.filter(
+                store=store,
+                batch__product=product,
+                quantity__gt=0
+            ).order_by('batch__expiration_date')
+
+            # 3. Tính tổng tồn kho xem có đủ để bán không
+            total_stock = sum(inv.quantity for inv in inventories)
+            if total_stock < sell_qty:
+                raise ValidationError({
+                    "detail": f"Không đủ hàng! Cửa hàng chỉ còn tồn {total_stock} sản phẩm."
+                })
+
+            # 4. Bắt đầu thuật toán trừ kho dần (Trừ lô cận date nhất trước)
+            remaining_to_deduct = sell_qty
+            for inv in inventories:
+                if remaining_to_deduct <= 0:
+                    break # Đã trừ đủ số lượng khách mua
+
+                if inv.quantity >= remaining_to_deduct:
+                    # Nếu lô này đủ hàng để trừ
+                    inv.quantity -= remaining_to_deduct
+                    inv.save()
+                    remaining_to_deduct = 0
+                else:
+                    # Nếu lô này không đủ hàng, lấy sạch lô này và đi qua lô tiếp theo
+                    remaining_to_deduct -= inv.quantity
+                    inv.quantity = 0
+                    inv.save()
+
+            # 5. Lưu OrderDetail vào Database sau khi trừ kho thành công
+            serializer.save()
+
+
+class CustomLoginSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        # Lấy tên tài khoản người dùng đang cố đăng nhập
+        username = attrs.get(self.username_field)
+
+        # Tạo một "hộp lưu trữ" trong bộ nhớ tạm để đếm số lần sai của riêng user này
+        cache_key = f"login_attempts_{username}"
+        attempts = cache.get(cache_key, 0)
+
+        # 1. Kiểm tra xem user này đã bị khóa chưa (nhập sai >= 3 lần)
+        if attempts >= 3:
+            raise ValidationError(
+                {"detail": "Tài khoản đã bị khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút."}
+            )
+
+        # 2. Thử xác thực tài khoản & mật khẩu
+        try:
+            # Gọi hàm gốc của JWT để kiểm tra
+            data = super().validate(attrs)
+
+            # Nếu mật khẩu ĐÚNG -> Xóa sổ nợ, reset số lần sai về 0
+            cache.delete(cache_key)
+            return data
+
+        except Exception:
+            # Nếu mật khẩu SAI -> Tăng số lần sai lên 1
+            attempts += 1
+            # Lưu lại vào Cache. Thiết lập timeout=900 (tương đương 15 phút).
+            # Sau 15 phút, Django sẽ tự động xóa bản ghi này để mở khóa.
+            cache.set(cache_key, attempts, timeout=900)
+
+            raise ValidationError(
+                {"detail": f"Sai thông tin đăng nhập! Bạn còn {3 - attempts} lần thử."}
+            )
+
+
+# Tạo một View mới sử dụng Serializer vừa "độ" ở trên
+class CustomLoginView(TokenObtainPairView):
+    serializer_class = CustomLoginSerializer
+
+
+class LogoutView(APIView):
+    # Phải có token (đã đăng nhập) thì mới được đăng xuất
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            # Client sẽ gửi cái refresh token lên đây
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+
+            # Đưa token này vào sổ đen
+            token.blacklist()
+
+            return Response({"detail": "Đăng xuất thành công!"}, status=status.HTTP_205_RESET_CONTENT)
+        except Exception:
+            return Response({"detail": "Token không hợp lệ hoặc đã bị hủy."}, status=status.HTTP_400_BAD_REQUEST)
