@@ -219,25 +219,75 @@ class OrderService:
     def handle_payment_webhook(self, payload):
         """
         Update order status from a payment provider webhook payload.
+        Handles Bank QR payments with signature validation and idempotency.
+        If payment is confirmed, deduct stock in real-time (FEFO).
+        
+        Raises:
+            ValueError: If webhook validation or order processing fails
+            InsufficientStockError: If store doesn't have enough stock (transaction rolls back)
         """
 
         order_id = payload.get("order_id")
+        external_order_id = payload.get("external_order_id")
         status = payload.get("status", "")
         payment_method = payload.get("payment_method", "")
+        signature = payload.get("signature")
+        amount = payload.get("amount")
+
+        if not order_id:
+            raise ValueError("order_id is required.")
 
         order = Order.objects.get(order_id=order_id)
 
+        if external_order_id and payment_method == "Bank QR":
+            # Idempotency: if already processed, return immediately
+            if order.external_order_id and order.external_order_id == external_order_id:
+                return order
+
+            # Validate webhook signature
+            if self._validate_bank_qr_signature(payload, signature):
+                order.external_order_id = external_order_id
+            else:
+                raise ValueError("Invalid webhook signature.")
+
+        # Update order status based on payment status
         if status.lower() in {"paid", "success", "completed"}:
             order.status = "Paid"
+            
+            # Deduct stock only once when payment is confirmed (FEFO)
+            details = OrderDetail.objects.filter(order=order)
+            for detail in details:
+                deduct_stock(
+                    store=order.store,
+                    product=detail.product,
+                    quantity=detail.quantity
+                )
         elif status.lower() in {"failed", "cancelled", "expired"}:
             order.status = "Failed"
         else:
             order.status = "Pending"
 
         order.payment_method = payment_method
-        order.save(update_fields=["status", "payment_method"])
+        order.save(update_fields=["status", "payment_method", "external_order_id"])
 
         return order
+
+    def _validate_bank_qr_signature(self, payload, provided_signature):
+        """
+        Validate Bank QR webhook signature using HMAC-SHA256.
+        """
+
+        webhook_secret = os.getenv("BANK_QR_WEBHOOK_SECRET", "dev-bank-qr-secret")
+
+        data_to_sign = f"{payload.get('order_id')}{payload.get('external_order_id')}{payload.get('status')}{payload.get('amount')}"
+
+        expected_signature = hmac.new(
+            webhook_secret.encode(),
+            data_to_sign.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        return hmac.compare_digest(expected_signature, provided_signature or "")
 
     def get_sales_analytics(self):
         """

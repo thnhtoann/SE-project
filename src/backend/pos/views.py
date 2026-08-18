@@ -8,9 +8,12 @@ from .serializers import (
     CreateOrderSerializer,
     AddItemSerializer,
     RemoveItemSerializer,
+    CheckoutSerializer,
+    BankQRWebhookSerializer,
 )
 from .services import OrderService
 from .serializers import ProductPriceSerializer
+from core.inventory import InsufficientStockError
 
 class CreateOrderView(APIView):
     """
@@ -198,23 +201,49 @@ class ProductPriceView(APIView):
 class PaymentWebhookView(APIView):
     """
     POST /api/pos/webhooks/payment/
+    Handle payment webhooks from Bank QR and other payment providers.
+    On payment confirmation, deduct stock in real-time (FEFO).
     """
 
     authentication_classes = []
     permission_classes = []
 
     def post(self, request):
-        service = OrderService()
-        order = service.handle_payment_webhook(request.data)
+        serializer = BankQRWebhookSerializer(data=request.data)
 
-        return Response(
-            {
-                "message": "Payment webhook processed successfully.",
-                "order_id": order.order_id,
-                "status": order.status,
-            },
-            status=status.HTTP_200_OK,
-        )
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            service = OrderService()
+            order = service.handle_payment_webhook(serializer.validated_data)
+
+            return Response(
+                {
+                    "message": "Payment webhook processed successfully.",
+                    "order_id": order.order_id,
+                    "status": order.status,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except InsufficientStockError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {"error": "Failed to process webhook."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class SalesAnalyticsView(APIView):

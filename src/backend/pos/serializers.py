@@ -93,3 +93,31 @@ class CheckoutSerializer(serializers.Serializer):
             )
         return value
 
+
+class BankQRWebhookSerializer(serializers.Serializer):
+    """
+    Bank QR Payment Webhook Request:
+    {
+        "order_id": 1,
+        "external_order_id": "BANK_TXN_123456",
+        "status": "paid" or "pending" or "failed",
+        "payment_method": "Bank QR",
+        "amount": 1000.00,
+        "signature": "hmac_signature_here"
+    }
+    """
+
+    order_id = serializers.IntegerField(min_value=1)
+    external_order_id = serializers.CharField(max_length=100)
+    status = serializers.CharField(max_length=50)
+    payment_method = serializers.CharField(max_length=50, default="Bank QR")
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    signature = serializers.CharField(max_length=256)
+
+    def validate_status(self, value):
+        valid_statuses = ["paid", "pending", "failed", "success", "completed", "cancelled", "expired"]
+        if value.lower() not in valid_statuses:
+            raise serializers.ValidationError(
+                f"Status must be one of: {', '.join(valid_statuses)}"
+            )
+        return value.lower()

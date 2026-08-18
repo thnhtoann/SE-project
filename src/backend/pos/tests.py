@@ -66,11 +66,19 @@ class OrderServiceTest(TestCase):
     # =====================================================
 
     def test_payment_webhook_updates_order_status(self):
-        Batch.objects.create(
+        from core.models import StoreInventory
+        import hmac
+        import hashlib
+        import os
+         
+        batch = Batch.objects.create(
             product=self.product,
             manufacture_date=date.today() - timedelta(days=30),
             expiration_date=date.today() + timedelta(days=5),
         )
+         
+        # Add stock for webhook test
+        StoreInventory.objects.create(store=self.store, batch=batch, quantity=10)
 
         order = self.service.create_order(
             self.store.store_id,
@@ -83,14 +91,24 @@ class OrderServiceTest(TestCase):
             1,
         )
 
-        updated_order = self.service.handle_payment_webhook(
-            {
-                "order_id": order.order_id,
-                "status": "paid",
-                "payment_method": "Bank QR",
-                "payment_reference": "qr-001",
-            }
-        )
+        # Create valid Bank QR webhook signature
+        webhook_secret = os.getenv("BANK_QR_WEBHOOK_SECRET", "dev-bank-qr-secret")
+        payload = {
+            "order_id": order.order_id,
+            "external_order_id": "test-qr-001",
+            "status": "paid",
+            "payment_method": "Bank QR",
+            "amount": str(order.total_amount),
+        }
+        data_to_sign = f"{payload['order_id']}{payload['external_order_id']}{payload['status']}{payload['amount']}"
+        signature = hmac.new(
+            webhook_secret.encode(),
+            data_to_sign.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        payload["signature"] = signature
+
+        updated_order = self.service.handle_payment_webhook(payload)
 
         order.refresh_from_db()
 
