@@ -173,17 +173,25 @@ class GetOrderView(APIView):
 class ProductPriceView(APIView):
     """
     GET /api/pos/products/<product_id>/price/
+    Retrieve product price with near-expiry discount if applicable.
     """
 
     def get(self, request, product_id):
-
-        service = OrderService()
-
-        data = service.get_discounted_price(product_id)
-
-        serializer = ProductPriceSerializer(data)
-
-        return Response(serializer.data)
+        try:
+            service = OrderService()
+            data = service.get_discounted_price(product_id)
+            serializer = ProductPriceSerializer(data)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {"error": "Failed to retrieve product price."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 @method_decorator(csrf_exempt, name="dispatch")

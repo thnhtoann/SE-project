@@ -1,11 +1,15 @@
 from decimal import Decimal
 from datetime import date
+import os
+import hmac
+import hashlib
 from django.db import transaction
 from django.db.models import Sum
 from django.db.models.functions import TruncDate, TruncHour, TruncMonth
 from django.utils import timezone
 
 from core.models import Order, OrderDetail, Product, Store, Staff, Batch
+from core.inventory import deduct_stock, InsufficientStockError
 from pos.constants import (
     NEAR_EXPIRY_DAYS,
     NEAR_EXPIRY_DISCOUNT,
@@ -168,40 +172,40 @@ class OrderService:
             "tax": tax,
             "total": total,
         }
-
     def get_discounted_price(self, product_id):
-        """
-        Calculate selling price after applying near-expiry discount.
-        """
-
+        #Calculate selling price after applying near-expiry discount.
+    
         product = Product.objects.get(product_id=product_id)
-
+    
         today = date.today()
-
+    
+        # Get the nearest batch that has not expired
         batch = (
             Batch.objects
-            .filter(product=product)
+            .filter(
+                product=product,
+                expiration_date__gte=today,
+            )
             .order_by("expiration_date")
             .first()
         )
-
+    
+        # No valid batch remaining
         if batch is None:
-            raise ValueError("Product has no batch.")
-
-        if batch.expiration_date < today:
             raise ValueError("Product has expired.")
-
+    
         days_left = (batch.expiration_date - today).days
-
+    
         original_price = product.base_price
-
+    
         discount = Decimal("0.00")
-
+    
+        # Apply near-expiry discount
         if days_left <= NEAR_EXPIRY_DAYS:
             discount = original_price * NEAR_EXPIRY_DISCOUNT
-
+    
         final_price = original_price - discount
-
+    
         return {
             "product_id": product.product_id,
             "product_name": product.product_name,
