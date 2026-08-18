@@ -1,0 +1,43 @@
+$kind: http-request
+name: 01 - With Discount
+url: http://localhost:8000/api/pos/products/10/price/
+method: GET
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status code is 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      const data = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Product is near expiry\", function () {\r
+
+      \    pm.expect(data.days_left).to.be.at.most(7);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Discount is applied\", function () {\r
+
+      \    pm.expect(Number(data.discount)).to.be.above(0);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Final price is lower than original price\", function () {\r
+
+      \    pm.expect(Number(data.final_price))\r
+
+      \        .to.be.below(Number(data.original_price));\r
+
+      });"
+    language: text/javascript
+order: 1787071076645
