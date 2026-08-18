@@ -104,6 +104,56 @@ class RemoveItemView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+class CheckoutView(APIView):
+    """
+    POST /api/pos/orders/<order_id>/checkout/
+    Perform checkout for an order with real-time stock deduction.
+    """
+
+    def post(self, request, order_id):
+        serializer = CheckoutSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            service = OrderService()
+
+            order = service.checkout(
+                order_id=order_id,
+                payment_method=serializer.validated_data["payment_method"],
+            )
+
+            return Response(
+                {
+                    "message": "Order checked out successfully.",
+                    "order_id": order.order_id,
+                    "status": order.status,
+                    "payment_method": order.payment_method,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except InsufficientStockError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {"error": "Checkout failed."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class GetOrderView(APIView):
     """
     GET /api/pos/orders/<order_id>/

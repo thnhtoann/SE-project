@@ -286,3 +286,30 @@ class OrderService:
             "revenue_by_month": list(revenue_by_month),
             "sales_trend": list(sales_trend),
         }
+
+    @transaction.atomic
+    def checkout(self, order_id, payment_method):
+        """
+        Perform checkout for an order.
+        Validates order exists and has items. Moves order to Processing state.
+        Stock deduction happens later when payment webhook confirms (Webhook Paid).
+         
+        Raises:
+            ValueError: If order cannot be checked out
+        """
+ 
+        order = Order.objects.get(order_id=order_id)
+ 
+        if order.status != "Pending":
+            raise ValueError(f"Cannot checkout order with status: {order.status}")
+ 
+        details = OrderDetail.objects.filter(order=order)
+ 
+        if not details.exists():
+            raise ValueError("Cannot checkout order with no items.")
+ 
+        order.status = "Processing"
+        order.payment_method = payment_method
+        order.save(update_fields=["status", "payment_method"])
+ 
+        return order

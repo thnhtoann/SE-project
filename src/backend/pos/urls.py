@@ -3,6 +3,7 @@ from .views import (
     CreateOrderView,
     AddItemView,
     RemoveItemView,
+    CheckoutView,
     GetOrderView,
     ProductPriceView,
     PaymentWebhookView,
@@ -26,6 +27,12 @@ urlpatterns = [
         "orders/<int:order_id>/remove-item/",
         RemoveItemView.as_view(),
         name="remove-item",
+    ),
+
+    path(
+        "orders/<int:order_id>/checkout/",
+        CheckoutView.as_view(),
+        name="checkout",
     ),
 
     path(

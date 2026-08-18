@@ -73,3 +73,23 @@ class ProductPriceSerializer(serializers.Serializer):
     )
 
     days_left = serializers.IntegerField()
+
+
+class CheckoutSerializer(serializers.Serializer):
+    """
+    Request:
+    {
+        "payment_method": "Cash" or "Bank QR" or "Card"
+    }
+    """
+
+    payment_method = serializers.CharField(max_length=50)
+
+    def validate_payment_method(self, value):
+        valid_methods = ["Cash", "Bank QR", "Card", "Online Banking"]
+        if value not in valid_methods:
+            raise serializers.ValidationError(
+                f"Payment method must be one of: {', '.join(valid_methods)}"
+            )
+        return value
+
