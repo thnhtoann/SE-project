@@ -14,6 +14,7 @@ from pos.constants import (
     NEAR_EXPIRY_DAYS,
     NEAR_EXPIRY_DISCOUNT,
 )
+from pos.models import DiscountSetting
 
 class OrderService:
     TAX_RATE = Decimal("0.10")
@@ -195,14 +196,28 @@ class OrderService:
             raise ValueError("Product has expired.")
     
         days_left = (batch.expiration_date - today).days
-    
+
+        setting = DiscountSetting.objects.filter(pk=1).first()
+
+        near_expiry_days = (
+            setting.near_expiry_days
+            if setting
+            else NEAR_EXPIRY_DAYS
+        )
+
+        near_expiry_discount = (
+            setting.near_expiry_discount
+            if setting
+            else NEAR_EXPIRY_DISCOUNT
+        )
+
         original_price = product.base_price
     
         discount = Decimal("0.00")
     
         # Apply near-expiry discount
-        if days_left <= NEAR_EXPIRY_DAYS:
-            discount = original_price * NEAR_EXPIRY_DISCOUNT
+        if days_left <= near_expiry_days:
+            discount = original_price * near_expiry_discount
     
         final_price = original_price - discount
     

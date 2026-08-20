@@ -8,6 +8,7 @@ from .views import (
     ProductPriceView,
     PaymentWebhookView,
     SalesAnalyticsView,
+    DiscountSettingView,
 )
 
 urlpatterns = [
@@ -58,4 +59,10 @@ urlpatterns = [
     SalesAnalyticsView.as_view(),
     name="sales-analytics",
     ),
+    
+    path(
+    "discount-settings/",
+    DiscountSettingView.as_view(),
+    name="discount-settings",
+),
 ]

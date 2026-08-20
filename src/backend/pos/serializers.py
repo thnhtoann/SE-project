@@ -121,3 +121,14 @@ class BankQRWebhookSerializer(serializers.Serializer):
                 f"Status must be one of: {', '.join(valid_statuses)}"
             )
         return value.lower()
+
+
+
+class DiscountSettingSerializer(serializers.Serializer):
+    near_expiry_days = serializers.IntegerField(min_value=0)
+    near_expiry_discount = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=4,
+        min_value=0,
+        max_value=1,
+    )

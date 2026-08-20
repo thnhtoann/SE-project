@@ -10,7 +10,9 @@ from .serializers import (
     RemoveItemSerializer,
     CheckoutSerializer,
     BankQRWebhookSerializer,
+    DiscountSettingSerializer,
 )
+from .models import DiscountSetting
 from .services import OrderService
 from .serializers import ProductPriceSerializer
 from core.inventory import InsufficientStockError
@@ -285,3 +287,57 @@ class SalesAnalyticsView(APIView):
         analytics = service.get_sales_analytics()
 
         return Response(analytics, status=status.HTTP_200_OK)
+
+class DiscountSettingView(APIView):
+    """
+    GET/PUT /api/pos/discount-settings/
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsStoreManager | IsChainManager,
+    ]
+
+    def get(self, request):
+        setting, _ = DiscountSetting.objects.get_or_create(
+            pk=1,
+        )
+
+        serializer = DiscountSettingSerializer(setting)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    def put(self, request):
+        serializer = DiscountSettingSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        setting, _ = DiscountSetting.objects.get_or_create(
+            pk=1,
+        )
+
+        setting.near_expiry_days = serializer.validated_data[
+            "near_expiry_days"
+        ]
+
+        setting.near_expiry_discount = serializer.validated_data[
+            "near_expiry_discount"
+        ]
+
+        setting.save()
+
+        return Response(
+            {
+                "message": "Discount setting updated successfully.",
+                "near_expiry_days": setting.near_expiry_days,
+                "near_expiry_discount": setting.near_expiry_discount,
+            },
+            status=status.HTTP_200_OK,
+        )
