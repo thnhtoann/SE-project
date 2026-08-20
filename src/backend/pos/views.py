@@ -14,12 +14,26 @@ from .serializers import (
 from .services import OrderService
 from .serializers import ProductPriceSerializer
 from core.inventory import InsufficientStockError
+from rest_framework.permissions import IsAuthenticated
+from core.permissions import (
+    IsCashier,
+    IsStoreManager, 
+    IsChainManager,
+)
+from core.permissions import (
+    IsCashier,
+    IsStoreManager,
+    IsChainManager,
+)
 
 class CreateOrderView(APIView):
     """
     POST /api/pos/orders/create/
     """
-
+    permission_classes = [
+        IsAuthenticated,
+        IsCashier | IsStoreManager | IsChainManager,
+        ]
     def post(self, request):
         serializer = CreateOrderSerializer(data=request.data)
 
@@ -50,7 +64,10 @@ class AddItemView(APIView):
     """
     POST /api/pos/orders/<order_id>/add-item/
     """
-
+    permission_classes = [
+        IsAuthenticated,
+        IsCashier | IsStoreManager | IsChainManager,
+        ]
     def post(self, request, order_id):
         serializer = AddItemSerializer(data=request.data)
 
@@ -82,7 +99,10 @@ class RemoveItemView(APIView):
     """
     POST /api/pos/orders/<order_id>/remove-item/
     """
-
+    permission_classes = [
+        IsAuthenticated,
+        IsCashier | IsStoreManager | IsChainManager,
+        ]
     def post(self, request, order_id):
         serializer = RemoveItemSerializer(data=request.data)
 
@@ -113,7 +133,10 @@ class CheckoutView(APIView):
     POST /api/pos/orders/<order_id>/checkout/
     Perform checkout for an order with real-time stock deduction.
     """
-
+    permission_classes = [
+        IsAuthenticated,
+        IsCashier | IsStoreManager | IsChainManager,
+        ]
     def post(self, request, order_id):
         serializer = CheckoutSerializer(data=request.data)
 
@@ -161,7 +184,10 @@ class GetOrderView(APIView):
     """
     GET /api/pos/orders/<order_id>/
     """
-
+    permission_classes = [
+        IsAuthenticated,
+        IsCashier | IsStoreManager | IsChainManager,
+        ]
     def get(self, request, order_id):
 
         service = OrderService()
@@ -178,7 +204,10 @@ class ProductPriceView(APIView):
     GET /api/pos/products/<product_id>/price/
     Retrieve product price with near-expiry discount if applicable.
     """
-
+    permission_classes = [
+        IsAuthenticated,
+        IsCashier | IsStoreManager | IsChainManager,
+        ]
     def get(self, request, product_id):
         try:
             service = OrderService()
