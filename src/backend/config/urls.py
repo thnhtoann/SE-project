@@ -28,6 +28,8 @@ urlpatterns = [
     
     # Kết nối sang các API webhook
     path('api/webhooks/', include('omnichannel.urls')),
+    path("api/pos/", include("pos.urls")),
+
     # Mặt hàng bán chạy và ế nhất
     path('api/reports/sales-performance/', BestWorstSellerView.as_view(), name='sales-performance-report'),
 

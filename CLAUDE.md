@@ -48,7 +48,7 @@ Migrations run automatically on backend container start (see `src/backend/entryp
 - `docs/management/` — project/process management artifacts
 - `docs/requirements/` — requirements docs
 - `docs/test/` — test plans and reports
-- `.claude/rules/` — coding standards, auto-loaded: `code-style.md`, `api-conventions.md`, `testing.md`
+- `.claude/rules/` — coding standards, auto-loaded: `code-style.md`, `api-conventions.md`, `testing.md`, `commit-messages.md`, `branch-naming.md`
 - `.claude/commands/` — custom slash commands: `/review` (review pending diff against project conventions), `/fix-issue` (investigate + fix a described bug), `/deploy` (pre-deploy checklist; no pipeline configured yet)
 - `.claude/agents/` — subagent personas: `code-reviewer` (style/correctness/test-coverage review), `security-auditor` (injection, auth, secrets, unsafe input handling), `api-contract-auditor` (DRF endpoints vs. `api-conventions.md`), `frontend-reviewer` (Next.js/React vs. `code-style.md` and i18n)
 - `.claude/skills/` — auto-invoked workflows: backend (`django-app-scaffolder`, `drf-endpoint`, `django-test-writer`) and frontend (`next-page-scaffolder`, `redux-slice-generator`, `i18n-key-sync`), plus the `example-skill` template and the `speckit-*` skills (see Spec Kit below)
