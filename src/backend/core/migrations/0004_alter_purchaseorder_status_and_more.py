@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0003_auth_rbac_staff_model'),
+        ('core', '0003_staff_email'),
     ]
 
     operations = [

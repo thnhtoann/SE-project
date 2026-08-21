@@ -1,5 +1,5 @@
 import re
-
+from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
 
 from .models import (
@@ -27,6 +27,14 @@ class StaffSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'password': {'write_only': True}
         }
+    def create(self, validated_data):
+        # Lấy mật khẩu người dùng nhập và băm nó ra
+        password = validated_data.get('password')
+        if password:
+            validated_data['password'] = make_password(password)
+        
+        # Lưu vào Database
+        return super().create(validated_data)
 
 
 class SupplierSerializer(serializers.ModelSerializer):
