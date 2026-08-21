@@ -6,11 +6,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq-dev gcc \
+    && apt-get install -y --no-install-recommends libpq-dev gcc g++ build-essential cmake \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Explicitly build CmdStan (Prophet's Stan backend). pip install prophet is *supposed* to do
+RUN install_cmdstan
 
 COPY . .
 

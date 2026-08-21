@@ -30,4 +30,6 @@ urlpatterns = [
     path('api/webhooks/', include('omnichannel.urls')),
     # Mặt hàng bán chạy và ế nhất
     path('api/reports/sales-performance/', BestWorstSellerView.as_view(), name='sales-performance-report'),
+
+    path('api/procurement/', include('forecasting.urls')),
 ]

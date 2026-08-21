@@ -1,8 +1,9 @@
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 from django.core.mail import send_mail
 from django.contrib.auth import authenticate
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -12,13 +13,13 @@ from django.db.models import Sum
 # Import Models & Serializers
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
-    Category, Product, Batch, StoreInventory, Order, OrderDetail, OTPRecord
+    Category, Product, Batch, StoreInventory, Order, OrderDetail, OTPRecord, InventoryAlert
 )
 from .serializers import (
     RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
-    PurchaseOrderSerializer, PurchaseOrderDetailSerializer, CategorySerializer,
+    PurchaseOrderSerializer, PurchaseOrderDetailSerializer, ShipmentSerializer, CategorySerializer,
     ProductSerializer, BatchSerializer, StoreInventorySerializer,
-    OrderSerializer, OrderDetailSerializer
+    OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer
 )
 from .permissions import IsCashier, IsChainManager, IsStoreManager
 
@@ -29,6 +30,11 @@ class HealthCheckView(APIView):
 
 
 class SupplierListCreateView(APIView):
+    def get_permissions(self):
+        if self.request.method in ['POST', 'PUT', 'DELETE']:
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
+
     def get(self, request):
         suppliers = Supplier.objects.all().order_by('supplier_id')
         serializer = SupplierSerializer(suppliers, many=True)
@@ -43,6 +49,11 @@ class SupplierListCreateView(APIView):
 
 
 class SupplierDetailView(APIView):
+    def get_permissions(self):
+        if self.request.method in ['POST', 'PUT', 'DELETE']:
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
+
     def get_object(self, pk):
         return Supplier.objects.filter(pk=pk).first()
 
@@ -97,15 +108,188 @@ class StaffViewSet(viewsets.ModelViewSet):
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
-    queryset = PurchaseOrder.objects.all()
+    queryset = PurchaseOrder.objects.all().order_by('-order_date', '-po_id')
     serializer_class = PurchaseOrderSerializer
     permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status_param = self.request.query_params.get('status')
+        supplier_param = self.request.query_params.get('supplier')
+
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param)
+        if supplier_param:
+            queryset = queryset.filter(supplier_id=supplier_param)
+
+        return queryset
+
+    @action(detail=True, methods=['patch', 'put'], url_path='status', url_name='status')
+    def update_status(self, request, pk=None):
+        purchase_order = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response({'status': ['Trạng thái (status) là bắt buộc.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(purchase_order, data={'status': new_status}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class PurchaseOrderDetailViewSet(viewsets.ModelViewSet):
     queryset = PurchaseOrderDetail.objects.all()
     serializer_class = PurchaseOrderDetailSerializer
     permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_permissions(self):
+        if self.action in ['destroy', 'create', 'update', 'partial_update']:
+            return [IsChainManager()]
+        return [(IsStoreManager | IsChainManager)()]
+
+
+class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    U010 / PROC-3: Shipment Status Tracking API for incoming purchase orders.
+    Provides tracking info (supplier, dates, status, overdue flag, items)
+    and enables status updates & overdue detection.
+    """
+    queryset = PurchaseOrder.objects.all().order_by('-order_date', '-po_id')
+    serializer_class = ShipmentSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_queryset(self):
+        # Auto sweep overdue orders on list/retrieve
+        for order in PurchaseOrder.objects.filter(status=PurchaseOrder.STATUS_PREPARING):
+            order.check_and_update_overdue()
+
+        queryset = super().get_queryset()
+        status_param = self.request.query_params.get('status')
+        supplier_param = self.request.query_params.get('supplier')
+        overdue_param = self.request.query_params.get('overdue')
+
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param)
+        if supplier_param:
+            queryset = queryset.filter(supplier_id=supplier_param)
+        if overdue_param is not None:
+            if overdue_param.lower() in ['true', '1']:
+                from datetime import date
+                queryset = queryset.filter(
+                    models.Q(status=PurchaseOrder.STATUS_DELAYED) |
+                    models.Q(status=PurchaseOrder.STATUS_PREPARING, expected_delivery_date__lt=date.today())
+                )
+
+        return queryset
+
+    @action(detail=True, methods=['patch', 'put'], url_path='status', url_name='status')
+    def update_status(self, request, pk=None):
+        shipment = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response({'status': ['Trạng thái (status) là bắt buộc.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = PurchaseOrderSerializer(shipment, data={'status': new_status}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ShipmentSerializer(shipment).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='check-overdue', url_name='check-overdue')
+    def check_overdue(self, request):
+        updated_count = 0
+        for order in PurchaseOrder.objects.filter(status=PurchaseOrder.STATUS_PREPARING):
+            if order.check_and_update_overdue():
+                updated_count += 1
+        return Response({
+            'detail': f'Đã cập nhật {updated_count} lô hàng trễ hạn sang trạng thái Delayed.',
+            'updated_count': updated_count
+        }, status=status.HTTP_200_OK)
+
+
+class LowStockAlertViewSet(viewsets.ModelViewSet):
+    """
+    Scrum 108 / PROC-4: Low-Stock Alert Logic API.
+    Performs JOIN query between PRODUCT and STORE_INVENTORY via BATCH.
+    Calculates actual store-level stock for products and generates alerts
+    when total stock reaches or falls below MinThreshold.
+    """
+    queryset = InventoryAlert.objects.all().order_by('-created_at')
+    serializer_class = InventoryAlertSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def _sweep_low_stock_alerts(self, store_id=None):
+        """
+        Executes optimal JOIN query filtering active inventory (quantity > 0)
+        grouped by (store, product). Compares against MinThreshold.
+        Also handles zero-stock products per store.
+        """
+        products = Product.objects.all()
+        stores = Store.objects.all()
+        if store_id:
+            stores = stores.filter(pk=store_id)
+
+        for store in stores:
+            for product in products:
+                total_stock = StoreInventory.objects.filter(
+                    store=store,
+                    batch__product=product
+                ).aggregate(total=models.Sum('quantity'))['total'] or 0
+
+                if product.is_low_stock(total_stock):
+                    alert, created = InventoryAlert.objects.get_or_create(
+                        product=product,
+                        store=store,
+                        is_resolved=False,
+                        defaults={
+                            'current_stock': total_stock,
+                            'min_threshold': product.min_threshold
+                        }
+                    )
+                    if not created and alert.current_stock != total_stock:
+                        alert.current_stock = total_stock
+                        alert.save(update_fields=['current_stock'])
+
+    def get_queryset(self):
+        store_id = self.request.query_params.get('store') or self.request.query_params.get('store_id')
+        self._sweep_low_stock_alerts(store_id=store_id)
+
+        queryset = super().get_queryset()
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+
+        product_id = self.request.query_params.get('product') or self.request.query_params.get('product_id')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        is_resolved_param = self.request.query_params.get('is_resolved')
+        if is_resolved_param is not None:
+            is_res = is_resolved_param.lower() in ['true', '1']
+            queryset = queryset.filter(is_resolved=is_res)
+
+        return queryset
+
+    @action(detail=False, methods=['post'], url_path='check', url_name='check')
+    def check_alerts(self, request):
+        self._sweep_low_stock_alerts()
+        active_alerts = InventoryAlert.objects.filter(is_resolved=False)
+        return Response({
+            'detail': f'Đã kiểm tra xong. Hiện có {active_alerts.count()} cảnh báo tồn kho thấp.',
+            'active_alert_count': active_alerts.count()
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch', 'put'], url_path='resolve', url_name='resolve')
+    def resolve_alert(self, request, pk=None):
+        alert = self.get_object()
+        alert.is_resolved = True
+        alert.save(update_fields=['is_resolved'])
+        return Response(self.get_serializer(alert).data, status=status.HTTP_200_OK)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -192,17 +376,17 @@ class OrderDetailViewSet(viewsets.ModelViewSet):
 
 class LoginRequestOTPView(APIView):
     """ Bước 1: Nhập User/Pass/Email -> Kiểm tra 3 lần sai -> Nhận OTP qua Email """
-    permission_classes = [] 
+    permission_classes = []
 
     def post(self, request):
         username = request.data.get('username')
         password = request.data.get('password')
         email = request.data.get('email')
-        
+
         # Bắt buộc phải nhập cả 3 trường
         if not username or not password or not email:
             return Response(
-                {"error": "Vui lòng nhập đầy đủ username, password và email!"}, 
+                {"error": "Vui lòng nhập đầy đủ username, password và email!"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -225,14 +409,14 @@ class LoginRequestOTPView(APIView):
             # Kiểm tra Email có khớp không
             if user.email != email:
                 return Response(
-                    {"error": "Email không khớp với thông tin tài khoản của bạn!"}, 
+                    {"error": "Email không khớp với thông tin tài khoản của bạn!"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
             # Sinh mã OTP
             otp_record, _ = OTPRecord.objects.get_or_create(user=user)
             otp = otp_record.generate_otp()
-            
+
             # Gửi OTP qua Email
             send_mail(
                 subject='[Smart Procurement] Mã OTP Đăng Nhập',
