@@ -33,11 +33,13 @@ import IconMenuPages from '@/components/icon/menu/icon-menu-pages';
 import IconMenuMore from '@/components/icon/menu/icon-menu-more';
 import { usePathname, useRouter } from 'next/navigation';
 import { getTranslation } from '@/i18n';
+import { logout } from '@/store/sessionSlice';
 
 const Header = () => {
     const pathname = usePathname();
-    const dispatch = useDispatch();
+    const dispatch = useDispatch<any>();
     const router = useRouter();
+    const session = useSelector((state: IRootState) => state.session);
     const { t, i18n } = getTranslation();
 
     useEffect(() => {
@@ -413,12 +415,9 @@ const Header = () => {
                                             <img className="h-10 w-10 rounded-md object-cover" src="/assets/images/user-profile.jpeg" alt="userProfile" />
                                             <div className="truncate ltr:pl-4 rtl:pr-4">
                                                 <h4 className="text-base">
-                                                    John Doe
-                                                    <span className="rounded bg-success-light px-1 text-xs text-success ltr:ml-2 rtl:ml-2">Pro</span>
+                                                    {session.username || t('username')}
+                                                    {session.role && <span className="rounded bg-success-light px-1 text-xs text-success ltr:ml-2 rtl:ml-2">{session.role}</span>}
                                                 </h4>
-                                                <button type="button" className="text-black/60 hover:text-primary dark:text-dark-light/60 dark:hover:text-white">
-                                                    johndoe@gmail.com
-                                                </button>
                                             </div>
                                         </div>
                                     </li>
@@ -441,10 +440,17 @@ const Header = () => {
                                         </Link>
                                     </li>
                                     <li className="border-t border-white-light dark:border-white-light/10">
-                                        <Link href="/auth/boxed-signin" className="!py-3 text-danger">
+                                        <button
+                                            type="button"
+                                            className="!py-3 text-danger"
+                                            onClick={async () => {
+                                                await dispatch(logout());
+                                                router.push('/login');
+                                            }}
+                                        >
                                             <IconLogout className="h-4.5 w-4.5 shrink-0 rotate-90 ltr:mr-2 rtl:ml-2" />
                                             Sign Out
-                                        </Link>
+                                        </button>
                                     </li>
                                 </ul>
                             </Dropdown>

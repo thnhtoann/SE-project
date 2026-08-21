@@ -5,11 +5,13 @@ import IconPlus from '@/components/icon/icon-plus';
 import IconSearch from '@/components/icon/icon-search';
 import IconTrashLines from '@/components/icon/icon-trash-lines';
 import IconX from '@/components/icon/icon-x';
-import { SUPPLIERS } from '@/data/mock-products';
+import { apiFetch, ApiError } from '@/lib/api-client';
 import { getTranslation } from '@/i18n';
+import { IRootState } from '@/store';
 import { Supplier } from '@/types/admin';
 import { Dialog, DialogPanel, Transition, TransitionChild } from '@headlessui/react';
-import { ChangeEvent, Fragment, FormEvent, useCallback, useMemo, useState } from 'react';
+import { ChangeEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 interface SupplierFormState {
     supplier_name: string;
@@ -20,14 +22,49 @@ interface SupplierFormState {
 
 const emptyForm: SupplierFormState = { supplier_name: '', contact_phone: '', email: '', address: '' };
 
+// Backend's Supplier model allows null email/address; normalize to '' at the
+// fetch boundary so the rest of this component can treat them as plain
+// strings, matching the Supplier type.
+const normalizeSupplier = (s: Supplier): Supplier => ({ ...s, email: s.email ?? '', address: s.address ?? '' });
+
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
 const ComponentsProcurementSuppliers = () => {
     const { t } = getTranslation();
-    const [suppliers, setSuppliers] = useState<Supplier[]>(SUPPLIERS);
+    const role = useSelector((state: IRootState) => state.session.role);
+    // GET requires Store Manager or above; POST/PUT/DELETE require Chain Manager or Admin (core/permissions.py)
+    const canMutate = role === 'Chain Manager' || role === 'Admin';
+
+    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [search, setSearch] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [form, setForm] = useState<SupplierFormState>(emptyForm);
     const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        apiFetch<Supplier[]>('/suppliers/')
+            .then((data) => {
+                if (!cancelled) setSuppliers(data.map(normalizeSupplier));
+            })
+            .catch((err) => {
+                if (!cancelled) setLoadError(err instanceof ApiError ? String(err.body ?? err.message) : t('error_loading_suppliers'));
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+        // Fetch once on mount only — `t` is not stable across renders and
+        // would otherwise cause a re-fetch loop.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const filtered = suppliers.filter(
         (s) =>
@@ -63,15 +100,21 @@ const ComponentsProcurementSuppliers = () => {
     };
 
     const deleteSupplier = useCallback(
-        (id: number) => {
-            if (window.confirm(t('confirm_delete_supplier'))) {
+        async (id: number) => {
+            if (!window.confirm(t('confirm_delete_supplier'))) return;
+            try {
+                await apiFetch(`/suppliers/${id}/`, { method: 'DELETE' });
                 setSuppliers((prev) => prev.filter((s) => s.supplier_id !== id));
+            } catch (err) {
+                window.alert(err instanceof ApiError ? String((err.body as { detail?: string })?.detail ?? err.message) : t('error_deleting_supplier'));
             }
         },
         [t],
     );
 
-    const submitForm = (e: FormEvent) => {
+    // Mirrors SupplierSerializer: supplier_name/contact_phone required,
+    // email/address optional (blank=True), email format checked only if present.
+    const submitForm = async (e: FormEvent) => {
         e.preventDefault();
         setError('');
 
@@ -83,26 +126,35 @@ const ComponentsProcurementSuppliers = () => {
             setError(t('error_phone_required'));
             return;
         }
-        if (!form.email.trim()) {
-            setError(t('error_email_required'));
-            return;
-        }
-        if (!form.address.trim()) {
-            setError(t('error_address_required'));
+        if (form.email.trim() && !EMAIL_PATTERN.test(form.email.trim())) {
+            setError(t('error_email_invalid'));
             return;
         }
 
-        if (editingId !== null) {
-            setSuppliers((prev) => prev.map((s) => (s.supplier_id === editingId ? { ...s, ...form } : s)));
-        } else {
-            const nextId = suppliers.reduce((max, s) => Math.max(max, s.supplier_id), 0) + 1;
-            setSuppliers((prev) => [...prev, { supplier_id: nextId, ...form }]);
+        setSubmitting(true);
+        try {
+            if (editingId !== null) {
+                const updated = await apiFetch<Supplier>(`/suppliers/${editingId}/`, { method: 'PUT', body: form });
+                setSuppliers((prev) => prev.map((s) => (s.supplier_id === editingId ? normalizeSupplier(updated) : s)));
+            } else {
+                const created = await apiFetch<Supplier>('/suppliers/', { method: 'POST', body: form });
+                setSuppliers((prev) => [...prev, normalizeSupplier(created)]);
+            }
+            setModalOpen(false);
+        } catch (err) {
+            if (err instanceof ApiError && err.body && typeof err.body === 'object') {
+                const firstFieldError = Object.values(err.body as Record<string, string[]>)[0];
+                setError(Array.isArray(firstFieldError) ? firstFieldError[0] : String(err.message));
+            } else {
+                setError(t('error_saving_supplier'));
+            }
+        } finally {
+            setSubmitting(false);
         }
-        setModalOpen(false);
     };
 
-    const columns: AdminTableColumn<Supplier>[] = useMemo(
-        () => [
+    const columns: AdminTableColumn<Supplier>[] = useMemo(() => {
+        const base: AdminTableColumn<Supplier>[] = [
             {
                 key: 'name',
                 header: t('supplier_name'),
@@ -113,6 +165,12 @@ const ComponentsProcurementSuppliers = () => {
             { key: 'phone', header: t('phone'), sortable: true, sortValue: (s) => s.contact_phone, render: (s) => <span dir="ltr">{s.contact_phone}</span> },
             { key: 'email', header: t('email'), sortable: true, sortValue: (s) => s.email, render: (s) => s.email },
             { key: 'address', header: t('address'), render: (s) => <span className="text-white-dark">{s.address}</span> },
+        ];
+
+        if (!canMutate) return base;
+
+        return [
+            ...base,
             {
                 key: 'actions',
                 header: t('actions'),
@@ -128,9 +186,8 @@ const ComponentsProcurementSuppliers = () => {
                     </div>
                 ),
             },
-        ],
-        [t, openEditModal, deleteSupplier],
-    );
+        ];
+    }, [t, canMutate, openEditModal, deleteSupplier]);
 
     return (
         <div>
@@ -148,10 +205,12 @@ const ComponentsProcurementSuppliers = () => {
                     <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <h2 className="text-xl">{t('supplier_list')}</h2>
                         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-                            <button type="button" className="btn btn-primary gap-2" onClick={openAddModal}>
-                                <IconPlus />
-                                {t('add_supplier')}
-                            </button>
+                            {canMutate && (
+                                <button type="button" className="btn btn-primary gap-2" onClick={openAddModal}>
+                                    <IconPlus />
+                                    {t('add_supplier')}
+                                </button>
+                            )}
                             <div className="relative">
                                 <input
                                     type="text"
@@ -167,7 +226,8 @@ const ComponentsProcurementSuppliers = () => {
                         </div>
                     </div>
 
-                    <AdminTable columns={columns} rows={filtered} rowKey={(s) => s.supplier_id} emptyMessage={t('no_suppliers_found')} />
+                    {loadError && <div className="mb-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{loadError}</div>}
+                    <AdminTable columns={columns} rows={filtered} rowKey={(s) => s.supplier_id} emptyMessage={loading ? t('loading') : t('no_suppliers_found')} />
                 </div>
             </div>
 
@@ -248,7 +308,7 @@ const ComponentsProcurementSuppliers = () => {
                                             <button type="button" className="btn btn-outline-danger" onClick={closeModal}>
                                                 {t('cancel')}
                                             </button>
-                                            <button type="submit" className="btn btn-primary">
+                                            <button type="submit" disabled={submitting} className="btn btn-primary">
                                                 {editingId !== null ? t('save_changes') : t('add_supplier')}
                                             </button>
                                         </div>

@@ -3,6 +3,7 @@ import { PropsWithChildren, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '@/store';
 import { toggleRTL, toggleTheme, toggleMenu, toggleLayout, toggleAnimation, toggleNavbar, toggleSemidark } from '@/store/themeConfigSlice';
+import { hydrate } from '@/store/sessionSlice';
 import Loading from '@/components/layouts/loading';
 import { getTranslation } from '@/i18n';
 
@@ -22,6 +23,8 @@ function App({ children }: PropsWithChildren) {
         dispatch(toggleSemidark(localStorage.getItem('semidark') || themeConfig.semidark));
         // locale
         initLocale(themeConfig.locale);
+        // session (from cookies — see store/sessionSlice.tsx)
+        dispatch(hydrate());
 
         setIsLoading(false);
     }, [dispatch, initLocale, themeConfig.theme, themeConfig.menu, themeConfig.layout, themeConfig.rtlClass, themeConfig.animation, themeConfig.navbar, themeConfig.locale, themeConfig.semidark]);
