@@ -48,7 +48,13 @@ class Staff(AbstractBaseUser):
     store = models.ForeignKey('Store', on_delete=models.SET_NULL, null=True, blank=True)
     email = models.EmailField(max_length=255, null=True, blank=True)
     is_active = models.BooleanField(default=True)
-    
+    phone = models.CharField(max_length=30, null=True, blank=True)
+    address = models.CharField(max_length=255, null=True, blank=True)
+    city = models.CharField(max_length=100, null=True, blank=True)
+    country = models.CharField(max_length=100, null=True, blank=True)
+    joined_at = models.DateField(auto_now_add=True)
+    social_links = models.JSONField(default=dict, blank=True)
+
     objects = StaffManager()
     
     USERNAME_FIELD = 'username'
@@ -256,3 +262,46 @@ class InventoryAlert(models.Model):
     def __str__(self):
         store_str = self.store.store_name if self.store else 'All Stores'
         return f"Alert {self.alert_id} - {self.product.product_name} at {store_str} (Stock: {self.current_stock}/{self.min_threshold})"
+
+# 14. Bảng STAFF_REVIEW
+class StaffReview(models.Model):
+    id = models.AutoField(primary_key=True)
+    staff = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name='reviews')
+    reviewer = models.CharField(max_length=100)
+    rating = models.PositiveSmallIntegerField()
+    comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Review of {self.staff.full_name} by {self.reviewer} ({self.rating}/5)"
+
+# 15. Bảng STAFF_DOCUMENT
+class StaffDocument(models.Model):
+    id = models.AutoField(primary_key=True)
+    staff = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name='documents')
+    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='staff_documents/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.staff.full_name})"
+
+# 16. Bảng STAFF_CERTIFICATE
+class StaffCertificate(models.Model):
+    id = models.AutoField(primary_key=True)
+    staff = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name='certificates')
+    name = models.CharField(max_length=255)
+    issued_by = models.CharField(max_length=255)
+    issued_at = models.DateField()
+
+    class Meta:
+        ordering = ['-issued_at']
+
+    def __str__(self):
+        return f"{self.name} ({self.staff.full_name})"

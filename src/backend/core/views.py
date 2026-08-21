@@ -8,18 +8,21 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Sum
 # Import Models & Serializers
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
-    Category, Product, Batch, StoreInventory, Order, OrderDetail, OTPRecord, InventoryAlert
+    Category, Product, Batch, StoreInventory, Order, OrderDetail, OTPRecord, InventoryAlert,
+    StaffReview, StaffDocument, StaffCertificate,
 )
 from .serializers import (
     RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
     PurchaseOrderSerializer, PurchaseOrderDetailSerializer, ShipmentSerializer, CategorySerializer,
     ProductSerializer, BatchSerializer, StoreInventorySerializer,
-    OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer
+    OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer,
+    StaffReviewSerializer, StaffDocumentSerializer, StaffCertificateSerializer,
 )
 from .permissions import IsCashier, IsChainManager, IsStoreManager
 
@@ -105,6 +108,36 @@ class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.all()
     serializer_class = StaffSerializer
     permission_classes = [IsChainManager] # Chỉ Chain Manager mới được tạo nhân viên mới
+
+
+class StaffScopedViewSet(viewsets.ModelViewSet):
+    """Shared base for Staff sub-resources (reviews/documents/certificates):
+    same all-Chain-Manager-only gate as StaffViewSet itself, filterable by
+    ?staff=<id> for the profile page that lists them per staff member."""
+    permission_classes = [IsChainManager]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        staff_id = self.request.query_params.get('staff')
+        if staff_id:
+            queryset = queryset.filter(staff_id=staff_id)
+        return queryset
+
+
+class StaffReviewViewSet(StaffScopedViewSet):
+    queryset = StaffReview.objects.all()
+    serializer_class = StaffReviewSerializer
+
+
+class StaffDocumentViewSet(StaffScopedViewSet):
+    queryset = StaffDocument.objects.all()
+    serializer_class = StaffDocumentSerializer
+    parser_classes = [MultiPartParser, FormParser]
+
+
+class StaffCertificateViewSet(StaffScopedViewSet):
+    queryset = StaffCertificate.objects.all()
+    serializer_class = StaffCertificateSerializer
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):

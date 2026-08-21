@@ -1,11 +1,20 @@
 import re
 from django.contrib.auth.hashers import make_password
+from django.db.models import Sum
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
-    Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert
+    Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert,
+    StaffReview, StaffDocument, StaffCertificate,
 )
+
+# Performance thresholds for StaffSerializer.get_performance_status — a
+# business rule not sourced from any spec, defined here so it's easy to find
+# and adjust. Based on the current calendar month's completed Order total.
+PERFORMANCE_EXCELLENT_THRESHOLD = 10_000_000
+PERFORMANCE_GOOD_THRESHOLD = 5_000_000
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -20,21 +29,91 @@ class StoreSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class StaffReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffReview
+        fields = ['id', 'staff', 'reviewer', 'rating', 'comment', 'created_at']
+        extra_kwargs = {
+            'staff': {'write_only': True},
+        }
+
+    def validate_rating(self, value):
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError("Rating must be between 1 and 5.")
+        return value
+
+
+class StaffDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffDocument
+        fields = ['id', 'staff', 'name', 'file', 'uploaded_at']
+        extra_kwargs = {
+            'staff': {'write_only': True},
+        }
+
+
+class StaffCertificateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffCertificate
+        fields = ['id', 'staff', 'name', 'issued_by', 'issued_at']
+        extra_kwargs = {
+            'staff': {'write_only': True},
+        }
+
+
 class StaffSerializer(serializers.ModelSerializer):
+    role_name = serializers.CharField(source='role.role_name', read_only=True)
+    store_name = serializers.CharField(source='store.store_name', read_only=True, default=None)
+    monthly_sales = serializers.SerializerMethodField()
+    performance_status = serializers.SerializerMethodField()
+    reviews = StaffReviewSerializer(many=True, read_only=True)
+    documents = StaffDocumentSerializer(many=True, read_only=True)
+    certificates = StaffCertificateSerializer(many=True, read_only=True)
+
     class Meta:
         model = Staff
         fields = '__all__'
         extra_kwargs = {
             'password': {'write_only': True}
         }
+
+    def get_monthly_sales(self, obj):
+        # Sum of this month's completed Orders attributed to this staff
+        # member (Order.staff), per FR: staff "monthly sales" performance
+        # figure. Not a stored field — always computed live from real Order
+        # data so it can't drift out of sync.
+        now = timezone.now()
+        total = Order.objects.filter(
+            staff=obj, order_date__year=now.year, order_date__month=now.month
+        ).aggregate(total=Sum('total_amount'))['total']
+        return float(total or 0)
+
+    def get_performance_status(self, obj):
+        sales = self.get_monthly_sales(obj)
+        if sales >= PERFORMANCE_EXCELLENT_THRESHOLD:
+            return 'Excellent'
+        if sales >= PERFORMANCE_GOOD_THRESHOLD:
+            return 'Good'
+        return 'Needs Improvement'
+
     def create(self, validated_data):
         # Lấy mật khẩu người dùng nhập và băm nó ra
         password = validated_data.get('password')
         if password:
             validated_data['password'] = make_password(password)
-        
+
         # Lưu vào Database
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Only hash+set password if the client actually sent one (edit forms
+        # typically omit it to mean "leave unchanged").
+        password = validated_data.get('password')
+        if password:
+            validated_data['password'] = make_password(password)
+        else:
+            validated_data.pop('password', None)
+        return super().update(instance, validated_data)
 
 
 class SupplierSerializer(serializers.ModelSerializer):

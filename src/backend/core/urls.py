@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     HealthCheckView, SupplierDetailView, SupplierListCreateView,
     RoleViewSet, StoreViewSet, StaffViewSet,
+    StaffReviewViewSet, StaffDocumentViewSet, StaffCertificateViewSet,
     PurchaseOrderViewSet, PurchaseOrderDetailViewSet, ShipmentViewSet, LowStockAlertViewSet, CategoryViewSet,
     ProductViewSet, BatchViewSet, StoreInventoryViewSet,
     OrderViewSet, OrderDetailViewSet, BestWorstSellerView,
@@ -13,6 +14,9 @@ router = DefaultRouter()
 router.register(r'roles', RoleViewSet)
 router.register(r'stores', StoreViewSet)
 router.register(r'staff', StaffViewSet)
+router.register(r'staff-reviews', StaffReviewViewSet)
+router.register(r'staff-documents', StaffDocumentViewSet)
+router.register(r'staff-certificates', StaffCertificateViewSet)
 router.register(r'purchase-orders', PurchaseOrderViewSet)
 router.register(r'purchase-order-details', PurchaseOrderDetailViewSet)
 router.register(r'shipments', ShipmentViewSet, basename='shipment')

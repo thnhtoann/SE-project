@@ -3,12 +3,14 @@ from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from .models import (
     Batch, Category, Product, Store, StoreInventory, Supplier,
-    Role, Staff, PurchaseOrder, PurchaseOrderDetail, InventoryAlert
+    Role, Staff, PurchaseOrder, PurchaseOrderDetail, InventoryAlert,
+    Order, StaffReview, StaffDocument, StaffCertificate,
 )
 
 from core.inventory import deduct_stock, InsufficientStockError
@@ -16,7 +18,7 @@ from core.inventory import deduct_stock, InsufficientStockError
 class SupplierApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.role = Role.objects.create(role_name='Chain Manager')
+        self.role = Role.objects.get_or_create(role_name='Chain Manager')[0]
         self.user = Staff.objects.create_user(
             username='supplier_mgr', password='password123', full_name='Supplier Mgr', role=self.role
         )
@@ -229,7 +231,7 @@ class PurchaseOrderApiTests(TestCase):
         self.client = APIClient()
 
         # Setup role and user with Chain Manager permissions
-        self.role = Role.objects.create(role_name='Chain Manager')
+        self.role = Role.objects.get_or_create(role_name='Chain Manager')[0]
         self.user = Staff.objects.create_user(
             username='manager1',
             password='password123',
@@ -397,7 +399,7 @@ class ShipmentApiTests(TestCase):
         self.client = APIClient()
 
         # Auth user
-        self.role = Role.objects.create(role_name='Chain Manager')
+        self.role = Role.objects.get_or_create(role_name='Chain Manager')[0]
         self.user = Staff.objects.create_user(
             username='manager_shipment',
             password='password123',
@@ -495,7 +497,7 @@ class LowStockAlertApiTests(TestCase):
         self.client = APIClient()
 
         # Role & User
-        self.role = Role.objects.create(role_name='Chain Manager')
+        self.role = Role.objects.get_or_create(role_name='Chain Manager')[0]
         self.user = Staff.objects.create_user(
             username='manager_alert',
             password='password123',
@@ -577,9 +579,9 @@ class RbacProcurementApiTests(TestCase):
         self.client = APIClient()
 
         # Roles
-        self.chain_manager_role = Role.objects.create(role_name='Chain Manager')
-        self.store_manager_role = Role.objects.create(role_name='Store Manager')
-        self.cashier_role = Role.objects.create(role_name='Cashier')
+        self.chain_manager_role = Role.objects.get_or_create(role_name='Chain Manager')[0]
+        self.store_manager_role = Role.objects.get_or_create(role_name='Store Manager')[0]
+        self.cashier_role = Role.objects.get_or_create(role_name='Cashier')[0]
 
         # Users
         self.chain_manager = Staff.objects.create_user(
@@ -658,4 +660,86 @@ class RbacProcurementApiTests(TestCase):
 
         # DELETE PO allowed
         res_del = self.client.delete(reverse('purchaseorder-detail', kwargs={'pk': self.po.pk}))
-        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)
+
+
+class StaffProfileApiTests(TestCase):
+    """Covers the Staff HR-profile fields/sub-resources added alongside the
+    frontend-backend routing work: monthly_sales/performance_status
+    (computed live from Order data) and the reviews/documents/certificates
+    sub-resources, plus their shared Chain-Manager-only RBAC gate."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.chain_manager_role = Role.objects.get_or_create(role_name='Chain Manager')[0]
+        self.cashier_role = Role.objects.get_or_create(role_name='Cashier')[0]
+        self.chain_manager = Staff.objects.create_user(
+            username='profile_mgr', password='password123', full_name='Profile Mgr', role=self.chain_manager_role
+        )
+        self.cashier = Staff.objects.create_user(
+            username='profile_cashier', password='password123', full_name='Profile Cashier', role=self.cashier_role
+        )
+        self.store = Store.objects.create(store_name='Main Store', location='HCMC')
+
+    def test_monthly_sales_sums_current_month_orders_for_staff(self):
+        Order.objects.create(
+            store=self.store, staff=self.cashier, order_date=timezone.now(),
+            order_type='POS', payment_method='cash', total_amount=Decimal('1500000.00'), status='Completed'
+        )
+        Order.objects.create(
+            store=self.store, staff=self.cashier, order_date=timezone.now(),
+            order_type='POS', payment_method='cash', total_amount=Decimal('4000000.00'), status='Completed'
+        )
+        # Different staff member's order must not be counted
+        Order.objects.create(
+            store=self.store, staff=self.chain_manager, order_date=timezone.now(),
+            order_type='POS', payment_method='cash', total_amount=Decimal('9000000.00'), status='Completed'
+        )
+
+        self.client.force_authenticate(user=self.chain_manager)
+        response = self.client.get(reverse('staff-detail', kwargs={'pk': self.cashier.pk}))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['monthly_sales'], 5500000.0)
+        self.assertEqual(response.data['performance_status'], 'Good')
+
+    def test_reviews_documents_certificates_nested_on_staff_detail(self):
+        StaffReview.objects.create(staff=self.cashier, reviewer='Ops Lead', rating=5, comment='Great work')
+        StaffCertificate.objects.create(staff=self.cashier, name='Food Safety', issued_by='Board', issued_at=date.today())
+        StaffDocument.objects.create(staff=self.cashier, name='Contract', file='staff_documents/test.txt')
+
+        self.client.force_authenticate(user=self.chain_manager)
+        response = self.client.get(reverse('staff-detail', kwargs={'pk': self.cashier.pk}))
+
+        self.assertEqual(len(response.data['reviews']), 1)
+        self.assertEqual(len(response.data['certificates']), 1)
+        self.assertEqual(len(response.data['documents']), 1)
+
+    def test_cashier_cannot_create_staff_review(self):
+        self.client.force_authenticate(user=self.cashier)
+        response = self.client.post(
+            reverse('staffreview-list'),
+            {'staff': self.cashier.pk, 'reviewer': 'Self', 'rating': 5, 'comment': 'n/a'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_review_rating_out_of_range_rejected(self):
+        self.client.force_authenticate(user=self.chain_manager)
+        response = self.client.post(
+            reverse('staffreview-list'),
+            {'staff': self.cashier.pk, 'reviewer': 'Ops Lead', 'rating': 6, 'comment': 'n/a'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_staff_reviews_filterable_by_staff_query_param(self):
+        StaffReview.objects.create(staff=self.cashier, reviewer='Ops Lead', rating=4, comment='Good')
+        StaffReview.objects.create(staff=self.chain_manager, reviewer='Board', rating=5, comment='Excellent')
+
+        self.client.force_authenticate(user=self.chain_manager)
+        response = self.client.get(reverse('staffreview-list'), {'staff': self.cashier.pk})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['reviewer'], 'Ops Lead')
