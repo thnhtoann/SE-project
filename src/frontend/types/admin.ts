@@ -2,6 +2,73 @@ export type StaffRole = 'Cashier' | 'Store Manager' | 'Chain Manager';
 
 export type StaffPerformanceStatus = 'Excellent' | 'Good' | 'Needs Improvement';
 
+// Real backend shape (src/backend/core/serializers.py StaffSerializer) — field
+// names mirror the API response directly (snake_case), unlike StaffAccount
+// below which is the older mock-only shape used by data/mock-staff.ts.
+export interface StaffSocialLinksRecord {
+    linkedin?: string;
+    twitter?: string;
+    facebook?: string;
+    github?: string;
+}
+
+export interface StaffReviewRecord {
+    id: number;
+    reviewer: string;
+    rating: number;
+    comment: string;
+    created_at: string;
+}
+
+export interface StaffDocumentRecord {
+    id: number;
+    name: string;
+    file: string;
+    uploaded_at: string;
+}
+
+export interface StaffCertificateRecord {
+    id: number;
+    name: string;
+    issued_by: string;
+    issued_at: string;
+}
+
+export interface RoleRecord {
+    role_id: number;
+    role_name: string;
+}
+
+export interface StoreRecord {
+    store_id: number;
+    store_name: string;
+    location: string;
+}
+
+export interface StaffRecord {
+    staff_id: number;
+    username: string;
+    password?: string;
+    full_name: string;
+    role: number;
+    role_name: StaffRole | string;
+    store: number | null;
+    store_name: string | null;
+    email: string | null;
+    is_active: boolean;
+    phone: string | null;
+    address: string | null;
+    city: string | null;
+    country: string | null;
+    joined_at: string;
+    social_links: StaffSocialLinksRecord;
+    monthly_sales: number;
+    performance_status: StaffPerformanceStatus;
+    reviews: StaffReviewRecord[];
+    documents: StaffDocumentRecord[];
+    certificates: StaffCertificateRecord[];
+}
+
 export interface StaffSocialLinks {
     linkedin?: string;
     twitter?: string;

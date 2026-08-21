@@ -80,9 +80,13 @@ export const apiFetch = async <T>(path: string, options: ApiFetchOptions = {}): 
     const { body, headers, ...rest } = options;
     const authenticated = !isUnauthenticatedPath(path);
 
+    const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+
     const doFetch = async (): Promise<Response> => {
         const requestHeaders: Record<string, string> = {
-            'Content-Type': 'application/json',
+            // Omit Content-Type for FormData — the browser must set it itself
+            // (multipart/form-data with the correct boundary).
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
             ...(headers as Record<string, string> | undefined),
         };
 
@@ -94,7 +98,7 @@ export const apiFetch = async <T>(path: string, options: ApiFetchOptions = {}): 
         return fetch(`${API_BASE_URL}${path}`, {
             ...rest,
             headers: requestHeaders,
-            body: body !== undefined ? JSON.stringify(body) : undefined,
+            body: isFormData ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
         });
     };
 
