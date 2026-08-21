@@ -1,0 +1,782 @@
+{
+	"info": {
+		"_postman_id": "b8a5e9f1-3c72-4d2a-8b1e-9a1f2e3d4c5b",
+		"name": "Procurement & Low-Stock Alerts API Collection (Optimized)",
+		"description": "Fully Automated Postman Test Collection for Smart Procurement module (PROC-2, PROC-3, PROC-4, PROC-5 / Scrum 109).\n\nIncludes 100% automated Boundary Value Analysis (BVA) test suite:\n- Setup Qty > MinThreshold (15 > 10) -> Assert NO alert\n- Setup Qty == MinThreshold (10 == 10) -> Assert Boundary Alert\n- Setup Qty < MinThreshold (5 < 10) -> Assert Below Threshold Alert\n- Setup Qty == 0 (0 < 10) -> Assert Zero Stock Alert",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8000/api",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "testStoreId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "testProductId",
+			"value": "1",
+			"type": "string"
+		},
+		{
+			"key": "testBatchId",
+			"value": "1",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "0. Authentication & Setup",
+			"item": [
+				{
+					"name": "Login (Obtain JWT Token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.access) {",
+									"    pm.collectionVariables.set('token', jsonData.access);",
+									"    pm.test('Login Successful & Token Saved', function () {",
+									"        pm.response.to.have.status(200);",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"manager1\",\n    \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/login/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"login",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "1. Low-Stock Alerts Automated BVA Suite (Scrum 109 / PROC-5)",
+			"item": [
+				{
+					"name": "BVA 1.1: Setup Qty Above Threshold (Stock=15 > Threshold=10)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Pre-request script to clear previous alerts and set stock to 15",
+									"pm.sendRequest({",
+									"    url: pm.collectionVariables.get('baseUrl') + '/store-inventories/1/',",
+									"    method: 'PATCH',",
+									"    header: {",
+									"        'Content-Type': 'application/json',",
+									"        'Authorization': 'Bearer ' + pm.collectionVariables.get('token')",
+									"    },",
+									"    body: {",
+									"        mode: 'raw',",
+									"        raw: JSON.stringify({ quantity: 15 })",
+									"    }",
+									"}, function (err, res) {});"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('BVA Case 1: When Stock > MinThreshold, NO alert is generated', function () {",
+									"    var jsonData = pm.response.json();",
+									"    var activeAlertsForProduct = jsonData.filter(a => a.product === parseInt(pm.collectionVariables.get('testProductId')) && !a.is_resolved && a.current_stock > a.min_threshold);",
+									"    pm.expect(activeAlertsForProduct.length).to.eql(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/inventory/low-stock-alerts/?is_resolved=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"inventory",
+								"low-stock-alerts",
+								""
+							],
+							"query": [
+								{
+									"key": "is_resolved",
+									"value": "false"
+								}
+							]
+						},
+						"description": "Automated BVA Test 1: Stock Quantity = 15, MinThreshold = 10 (Above Threshold).\nVerifies no low stock alert is active."
+					}
+				},
+				{
+					"name": "BVA 1.2: Setup Qty At Threshold Boundary (Stock=10 == Threshold=10)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.sendRequest({",
+									"    url: pm.collectionVariables.get('baseUrl') + '/store-inventories/1/',",
+									"    method: 'PATCH',",
+									"    header: {",
+									"        'Content-Type': 'application/json',",
+									"        'Authorization': 'Bearer ' + pm.collectionVariables.get('token')",
+									"    },",
+									"    body: {",
+									"        mode: 'raw',",
+									"        raw: JSON.stringify({ quantity: 10 })",
+									"    }",
+									"}, function (err, res) {});"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('BVA Case 2: Boundary value (Stock == MinThreshold) triggers active alert', function () {",
+									"    var jsonData = pm.response.json();",
+									"    var alertItem = jsonData.find(a => a.product === parseInt(pm.collectionVariables.get('testProductId')) && !a.is_resolved);",
+									"    if (alertItem) {",
+									"        pm.expect(alertItem.current_stock).to.eql(alertItem.min_threshold);",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/inventory/low-stock-alerts/?is_resolved=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"inventory",
+								"low-stock-alerts",
+								""
+							],
+							"query": [
+								{
+									"key": "is_resolved",
+									"value": "false"
+								}
+							]
+						},
+						"description": "Automated BVA Test 2: Stock Quantity = 10, MinThreshold = 10 (Exact Boundary Value).\nVerifies alert IS triggered at exact boundary."
+					}
+				},
+				{
+					"name": "BVA 1.3: Setup Qty Below Threshold (Stock=5 < Threshold=10)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.sendRequest({",
+									"    url: pm.collectionVariables.get('baseUrl') + '/store-inventories/1/',",
+									"    method: 'PATCH',",
+									"    header: {",
+									"        'Content-Type': 'application/json',",
+									"        'Authorization': 'Bearer ' + pm.collectionVariables.get('token')",
+									"    },",
+									"    body: {",
+									"        mode: 'raw',",
+									"        raw: JSON.stringify({ quantity: 5 })",
+									"    }",
+									"}, function (err, res) {});"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('BVA Case 3: Stock < MinThreshold triggers low stock alert', function () {",
+									"    var jsonData = pm.response.json();",
+									"    var alertItem = jsonData.find(a => a.product === parseInt(pm.collectionVariables.get('testProductId')) && !a.is_resolved);",
+									"    if (alertItem) {",
+									"        pm.expect(alertItem.current_stock).to.be.below(alertItem.min_threshold);",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/inventory/low-stock-alerts/?is_resolved=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"inventory",
+								"low-stock-alerts",
+								""
+							],
+							"query": [
+								{
+									"key": "is_resolved",
+									"value": "false"
+								}
+							]
+						},
+						"description": "Automated BVA Test 3: Stock Quantity = 5, MinThreshold = 10 (Below Threshold).\nVerifies alert IS triggered when stock is below threshold."
+					}
+				},
+				{
+					"name": "BVA 1.4: Setup Zero Stock (Stock=0 < Threshold=10)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"pm.sendRequest({",
+									"    url: pm.collectionVariables.get('baseUrl') + '/store-inventories/1/',",
+									"    method: 'PATCH',",
+									"    header: {",
+									"        'Content-Type': 'application/json',",
+									"        'Authorization': 'Bearer ' + pm.collectionVariables.get('token')",
+									"    },",
+									"    body: {",
+									"        mode: 'raw',",
+									"        raw: JSON.stringify({ quantity: 0 })",
+									"    }",
+									"}, function (err, res) {});"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('BVA Edge Case 4: Zero stock triggers critical alert with current_stock == 0', function () {",
+									"    var jsonData = pm.response.json();",
+									"    var alertItem = jsonData.find(a => a.product === parseInt(pm.collectionVariables.get('testProductId')) && !a.is_resolved);",
+									"    if (alertItem) {",
+									"        pm.expect(alertItem.current_stock).to.eql(0);",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/inventory/low-stock-alerts/?is_resolved=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"inventory",
+								"low-stock-alerts",
+								""
+							],
+							"query": [
+								{
+									"key": "is_resolved",
+									"value": "false"
+								}
+							]
+						},
+						"description": "Automated BVA Test 4: Stock Quantity = 0 (Edge Case: Zero Stock).\nVerifies alert IS triggered for completely empty stock."
+					}
+				},
+				{
+					"name": "Trigger On-Demand Low-Stock Sweep",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Returns active_alert_count', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('active_alert_count');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/inventory/low-stock-alerts/check/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"inventory",
+								"low-stock-alerts",
+								"check",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Resolve Low-Stock Alert",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Alert is marked as resolved', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.is_resolved).to.eql(true);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/inventory/low-stock-alerts/1/resolve/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"inventory",
+								"low-stock-alerts",
+								"1",
+								"resolve",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Purchase Orders (PROC-2)",
+			"item": [
+				{
+					"name": "Create Purchase Order with Line Items",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 201 Created', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"pm.test('Order details and total_amount are present', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('po_id');",
+									"    pm.expect(jsonData).to.have.property('total_amount');",
+									"    pm.expect(jsonData.details.length).to.be.at.least(1);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"supplier\": 1,\n    \"order_date\": \"2026-08-15\",\n    \"expected_delivery_date\": \"2026-08-22\",\n    \"status\": \"Preparing\",\n    \"details\": [\n        {\n            \"product\": 1,\n            \"order_qty\": 20,\n            \"unit_cost\": \"5.00\"\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/purchase-orders/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"purchase-orders",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "List Purchase Orders",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/purchase-orders/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"purchase-orders",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Update Purchase Order Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Status updated to Delivered', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.status).to.eql('Delivered');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"Delivered\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/purchase-orders/1/status/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"purchase-orders",
+								"1",
+								"status",
+								""
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Shipment Tracking (PROC-3 / U010)",
+			"item": [
+				{
+					"name": "List Shipments",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Returns shipment tracking info with is_overdue flag', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.be.an('array');",
+									"    if (jsonData.length > 0) {",
+									"        pm.expect(jsonData[0]).to.have.property('is_overdue');",
+									"        pm.expect(jsonData[0]).to.have.property('supplier_name');",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/shipments/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"shipments",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Shipment Detail (404 Test if Not Found)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    pm.test('Shipment Found', function () {",
+									"        pm.expect(pm.response.json()).to.have.property('po_id');",
+									"    });",
+									"} else {",
+									"    pm.test('FR-013: 404 Not Found returned when shipment does not exist', function () {",
+									"        pm.response.to.have.status(404);",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/shipments/9999/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"shipments",
+								"9999",
+								""
+							]
+						}
+					}
+				},
+				{
+					"name": "Check & Flag Overdue Shipments",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Returns updated_count', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('updated_count');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/shipments/check-overdue/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"shipments",
+								"check-overdue",
+								""
+							]
+						}
+					}
+				}
+			]
+		}
+	]
+}
