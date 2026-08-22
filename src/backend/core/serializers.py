@@ -1,5 +1,6 @@
 import re
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
@@ -114,6 +115,29 @@ class StaffSerializer(serializers.ModelSerializer):
         else:
             validated_data.pop('password', None)
         return super().update(instance, validated_data)
+
+
+class RegisterSerializer(serializers.ModelSerializer):
+    """Public self-registration. Every account created through this endpoint
+    is a Chain Manager — there's no lower-privilege self-service signup path
+    (Cashier/Store Manager accounts are provisioned by a Chain Manager via
+    the Staff API instead)."""
+    password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = Staff
+        fields = ['staff_id', 'username', 'password', 'full_name', 'email']
+        extra_kwargs = {
+            'staff_id': {'read_only': True},
+            # Required here even though nullable on the model — OTP login
+            # emails the code to this address, so an account without one
+            # could never sign in.
+            'email': {'required': True, 'allow_blank': False},
+        }
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value
 
 
 class SupplierSerializer(serializers.ModelSerializer):

@@ -1,7 +1,14 @@
+import hashlib
+import random
+import secrets
+from datetime import timedelta
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import models, transaction, IntegrityError
 from django.core.mail import send_mail
 from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -23,6 +30,7 @@ from .serializers import (
     ProductSerializer, BatchSerializer, StoreInventorySerializer,
     OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer,
     StaffReviewSerializer, StaffDocumentSerializer, StaffCertificateSerializer,
+    RegisterSerializer,
 )
 from .permissions import IsCashier, IsChainManager, IsStoreManager
 
@@ -407,48 +415,205 @@ class OrderDetailViewSet(viewsets.ModelViewSet):
 # CÁC VIEW XỬ LÝ AUTHENTICATION 2FA (OTP -> JWT)
 # ==========================================
 
-class LoginRequestOTPView(APIView):
-    """ Bước 1: Nhập User/Pass/Email -> Kiểm tra 3 lần sai -> Nhận OTP qua Email """
+# "Remember me" (remember_me=true on login) does two things together, like a
+# typical "keep me signed in on this device" checkbox: issues a refresh token
+# that lives 30 days instead of the default, and marks this browser as
+# trusted for 30 days so a future login from it can skip the OTP step
+# entirely. Trust records live in the shared Redis cache (not a DB table) —
+# consistent with how login/OTP attempt counters are already tracked here,
+# and simple since there's nothing to look up besides "is this token valid".
+REMEMBER_ME_REFRESH_LIFETIME = timedelta(days=30)
+TRUSTED_DEVICE_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def _hash_device_token(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _issue_tokens(user, remember_me):
+    refresh = RefreshToken.for_user(user)
+    if remember_me:
+        refresh.set_exp(lifetime=REMEMBER_ME_REFRESH_LIFETIME)
+
+    device_token = None
+    if remember_me:
+        device_token = secrets.token_urlsafe(32)
+        cache.set(
+            f"trusted_device_{_hash_device_token(device_token)}",
+            {'staff_id': user.staff_id},
+            timeout=TRUSTED_DEVICE_TTL_SECONDS,
+        )
+
+    return {
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+        'role': user.role.role_name if user.role else 'None',
+        'device_token': device_token,
+    }
+
+
+class RegisterRequestOTPView(APIView):
+    """ Bước 1: Nhập thông tin đăng ký -> Kiểm tra hợp lệ -> Gửi OTP qua Email.
+    Tài khoản chưa được tạo ở bước này — dữ liệu (kèm mật khẩu đã băm) và mã
+    OTP được lưu tạm trong cache (khóa theo email) vì Staff record chưa tồn
+    tại để gắn OTPRecord vào. """
     permission_classes = []
 
     def post(self, request):
-        username = request.data.get('username')
-        password = request.data.get('password')
-        email = request.data.get('email')
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        email = data['email']
 
-        # Bắt buộc phải nhập cả 3 trường
-        if not username or not password or not email:
+        otp = str(random.randint(100000, 999999))
+        cache.set(f"pending_registration_{email}", {
+            'username': data['username'],
+            'full_name': data['full_name'],
+            'email': email,
+            'password_hash': make_password(data['password']),
+            'otp': otp,
+        }, timeout=300)
+        cache.delete(f"register_otp_attempts_{email}")
+
+        send_mail(
+            subject='[Smart Procurement] Mã OTP Xác Thực Đăng Ký',
+            message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
+            from_email='no-reply@smartprocurement.com',
+            recipient_list=[email],
+            fail_silently=False,
+        )
+
+        return Response({
+            "message": "OTP đã được gửi tới email của bạn.",
+            "email": email,
+        }, status=status.HTTP_200_OK)
+
+
+class RegisterVerifyOTPView(APIView):
+    """ Bước 2: Nhập OTP -> Tạo tài khoản Chain Manager """
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get('email')
+        otp_code = request.data.get('otp')
+
+        if not email or not otp_code:
             return Response(
-                {"error": "Vui lòng nhập đầy đủ username, password và email!"},
+                {"error": "Vui lòng nhập đầy đủ email và mã OTP!", "error_code": "otp_missing"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        pending_key = f"pending_registration_{email}"
+        pending = cache.get(pending_key)
+        if not pending:
+            return Response(
+                {"error": "Yêu cầu đăng ký đã hết hạn hoặc không tồn tại. Vui lòng đăng ký lại.", "error_code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        attempts_key = f"register_otp_attempts_{email}"
+        attempts = cache.get(attempts_key, 0)
+        if attempts >= 5:
+            return Response(
+                {"error": "Nhập sai mã OTP quá nhiều lần. Vui lòng đăng ký lại.", "error_code": "otp_locked"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if pending['otp'] != str(otp_code):
+            cache.set(attempts_key, attempts + 1, timeout=300)
+            return Response(
+                {"error": "Mã OTP không chính xác hoặc đã hết hạn!", "error_code": "otp_invalid"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        role, _ = Role.objects.get_or_create(role_name='Chain Manager')
+        try:
+            Staff.objects.create(
+                username=pending['username'],
+                password=pending['password_hash'],
+                full_name=pending['full_name'],
+                email=pending['email'],
+                role=role,
+                is_active=True,
+            )
+        except IntegrityError:
+            cache.delete(pending_key)
+            cache.delete(attempts_key)
+            return Response(
+                {"error": "Tên đăng nhập hoặc email đã được sử dụng.", "error_code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        cache.delete(pending_key)
+        cache.delete(attempts_key)
+        return Response(
+            {"message": "Tài khoản Chain Manager đã được tạo. Vui lòng đăng nhập."},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class LoginRequestOTPView(APIView):
+    """ Bước 1: Nhập Username/Email + Pass -> Kiểm tra 3 lần sai -> Nhận OTP qua Email """
+    permission_classes = []
+
+    def post(self, request):
+        identifier = request.data.get('identifier')
+        password = request.data.get('password')
+
+        # Bắt buộc phải nhập đầy đủ
+        if not identifier or not password:
+            return Response(
+                {
+                    "error": "Vui lòng nhập đầy đủ tài khoản (username hoặc email) và mật khẩu!",
+                    "error_code": "missing_credentials",
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Cho phép đăng nhập bằng username hoặc email
+        matched_user = Staff.objects.filter(
+            models.Q(username=identifier) | models.Q(email__iexact=identifier)
+        ).first()
+        lookup_username = matched_user.username if matched_user else identifier
+
         # 1. Kiểm tra xem user này đã bị khóa chưa (nhập sai >= 3 lần)
-        cache_key = f"login_attempts_{username}"
+        cache_key = f"login_attempts_{lookup_username}"
         attempts = cache.get(cache_key, 0)
 
         if attempts >= 3:
             return Response(
-                {"error": "Tài khoản đã bị khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút."},
+                {
+                    "error": "Tài khoản đã bị khóa do nhập sai quá 3 lần. Vui lòng thử lại sau 15 phút.",
+                    "error_code": "account_locked",
+                },
                 status=status.HTTP_403_FORBIDDEN
             )
 
         # 2. Xác thực tài khoản
-        user = authenticate(username=username, password=password)
+        user = authenticate(username=lookup_username, password=password) if matched_user else None
         if user:
             # Xóa sổ nợ nếu nhập đúng
             cache.delete(cache_key)
 
-            # Kiểm tra Email có khớp không
-            if user.email != email:
-                return Response(
-                    {"error": "Email không khớp với thông tin tài khoản của bạn!"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Nếu trình duyệt này đã được ghi nhớ (đăng nhập trước đó có tick
+            # "remember_me") và mã thiết bị khớp với đúng user này -> bỏ qua
+            # bước OTP, cấp token luôn.
+            device_token = request.data.get('device_token')
+            if device_token:
+                trusted = cache.get(f"trusted_device_{_hash_device_token(device_token)}")
+                if trusted and trusted.get('staff_id') == user.staff_id:
+                    remember_me = bool(request.data.get('remember_me'))
+                    tokens = _issue_tokens(user, remember_me)
+                    return Response({
+                        'trusted_device': True,
+                        'username': user.username,
+                        **tokens,
+                    }, status=status.HTTP_200_OK)
 
             # Sinh mã OTP
             otp_record, _ = OTPRecord.objects.get_or_create(user=user)
             otp = otp_record.generate_otp()
+            cache.delete(f"otp_attempts_{user.username}")
 
             # Gửi OTP qua Email
             send_mail(
@@ -458,17 +623,21 @@ class LoginRequestOTPView(APIView):
                 recipient_list=[user.email],
                 fail_silently=False,
             )
-            
+
             return Response({
-                "message": "OTP đã được gửi tới email của bạn.", 
-                "username": username
+                "message": "OTP đã được gửi tới email của bạn.",
+                "username": user.username
             }, status=status.HTTP_200_OK)
-            
+
         # Nếu sai password -> Tăng số lần sai
         attempts += 1
         cache.set(cache_key, attempts, timeout=900)
         return Response(
-            {"error": f"Sai thông tin đăng nhập! Bạn còn {3 - attempts} lần thử."}, 
+            {
+                "error": f"Sai thông tin đăng nhập! Bạn còn {3 - attempts} lần thử.",
+                "error_code": "invalid_credentials",
+                "attempts_left": max(0, 3 - attempts),
+            },
             status=status.HTTP_401_UNAUTHORIZED
         )
 
@@ -480,31 +649,140 @@ class LoginVerifyOTPView(APIView):
     def post(self, request):
         username = request.data.get('username')
         otp_code = request.data.get('otp')
-        
+
         if not username or not otp_code:
-            return Response({"error": "Vui lòng nhập đầy đủ username và mã OTP!"}, status=status.HTTP_400_BAD_REQUEST)
-            
+            return Response(
+                {"error": "Vui lòng nhập đầy đủ username và mã OTP!", "error_code": "otp_missing"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         try:
             user = Staff.objects.get(username=username)
             otp_record = user.otp_record
-            
+
+            # Chặn brute-force mã OTP: tối đa 5 lần nhập sai mỗi mã
+            attempts_key = f"otp_attempts_{username}"
+            attempts = cache.get(attempts_key, 0)
+            if attempts >= 5:
+                return Response(
+                    {"error": "Nhập sai mã OTP quá nhiều lần. Vui lòng gửi lại mã mới.", "error_code": "otp_locked"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
             # Kiểm tra OTP đúng và còn hạn
             if otp_record.otp == str(otp_code) and otp_record.is_valid():
                 otp_record.otp = 'USED' # Vô hiệu hóa OTP sau khi dùng
                 otp_record.save()
-                
+                cache.delete(attempts_key)
+
                 # Cấp cặp JWT Token chính thức
-                refresh = RefreshToken.for_user(user)
-                return Response({
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                    'role': user.role.role_name if user.role else 'None'
-                }, status=status.HTTP_200_OK)
-                
-            return Response({"error": "OTP không chính xác hoặc đã hết hạn!"}, status=status.HTTP_400_BAD_REQUEST)
-            
+                remember_me = bool(request.data.get('remember_me'))
+                return Response(_issue_tokens(user, remember_me), status=status.HTTP_200_OK)
+
+            cache.set(attempts_key, attempts + 1, timeout=300)
+            return Response(
+                {"error": "OTP không chính xác hoặc đã hết hạn!", "error_code": "otp_invalid"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         except (Staff.DoesNotExist, OTPRecord.DoesNotExist):
-            return Response({"error": "Yêu cầu không hợp lệ!"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Yêu cầu không hợp lệ!", "error_code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class PasswordResetRequestOTPView(APIView):
+    """ Bước 1: Nhập username/email -> Gửi OTP đặt lại mật khẩu qua Email.
+    Luôn trả về cùng một thông báo dù tài khoản có tồn tại hay không, để
+    tránh lộ thông tin tài khoản nào đang được sử dụng (account enumeration).
+    """
+    permission_classes = []
+
+    def post(self, request):
+        identifier = request.data.get('identifier')
+        if not identifier:
+            return Response(
+                {"error": "Vui lòng nhập tên đăng nhập hoặc email!", "error_code": "missing_identifier"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = Staff.objects.filter(
+            models.Q(username=identifier) | models.Q(email__iexact=identifier)
+        ).first()
+
+        if user and user.email:
+            otp_record, _ = OTPRecord.objects.get_or_create(user=user)
+            otp = otp_record.generate_otp()
+            cache.delete(f"password_reset_attempts_{user.username}")
+            send_mail(
+                subject='[Smart Procurement] Mã OTP Đặt Lại Mật Khẩu',
+                message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
+                from_email='no-reply@smartprocurement.com',
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+
+        return Response({
+            "message": "Nếu tài khoản tồn tại, một mã OTP đã được gửi tới email đã đăng ký.",
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordResetVerifyOTPView(APIView):
+    """ Bước 2: Nhập OTP + mật khẩu mới -> Đặt lại mật khẩu """
+    permission_classes = []
+
+    def post(self, request):
+        identifier = request.data.get('identifier')
+        otp_code = request.data.get('otp')
+        new_password = request.data.get('new_password')
+
+        if not identifier or not otp_code or not new_password:
+            return Response(
+                {"error": "Vui lòng nhập đầy đủ thông tin!", "error_code": "otp_missing"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = Staff.objects.filter(
+            models.Q(username=identifier) | models.Q(email__iexact=identifier)
+        ).first()
+        if not user:
+            return Response(
+                {"error": "Yêu cầu không hợp lệ!", "error_code": "invalid_request"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        attempts_key = f"password_reset_attempts_{user.username}"
+        attempts = cache.get(attempts_key, 0)
+        if attempts >= 5:
+            return Response(
+                {"error": "Nhập sai mã OTP quá nhiều lần. Vui lòng gửi lại mã mới.", "error_code": "otp_locked"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        otp_record = getattr(user, 'otp_record', None)
+        if not otp_record or otp_record.otp != str(otp_code) or not otp_record.is_valid():
+            cache.set(attempts_key, attempts + 1, timeout=300)
+            return Response(
+                {"error": "Mã OTP không chính xác hoặc đã hết hạn!", "error_code": "otp_invalid"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as e:
+            return Response({"password": list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+        otp_record.otp = 'USED'
+        otp_record.save()
+        cache.delete(attempts_key)
+
+        return Response(
+            {"message": "Mật khẩu đã được đặt lại. Vui lòng đăng nhập."},
+            status=status.HTTP_200_OK,
+        )
 
 
 class LogoutView(APIView):
