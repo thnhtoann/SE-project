@@ -465,6 +465,7 @@
     "lazada_last_synced": "Đồng bộ lần cuối",
     "lazada_never_synced": "Chưa từng",
     "lazada_sync_now": "Đồng bộ đơn hàng ngay",
+    "lazada_test_oauth": "Kiểm tra đăng nhập OAuth",
     "lazada_sync_result": "Đã lấy {fetched}, đồng bộ {synced}, {errors} lỗi.",
     "lazada_connected_notice": "Kết nối tài khoản Lazada thành công.",
     "lazada_connect_error": "Kết nối tài khoản Lazada thất bại.",

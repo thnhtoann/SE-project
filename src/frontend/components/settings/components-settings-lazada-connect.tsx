@@ -62,15 +62,16 @@ const ComponentsSettingsLazadaConnect = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 
-    const connect = async () => {
+    const connect = async (storeId?: string) => {
         setError('');
-        if (!selectedStore) {
+        const targetStore = storeId ?? selectedStore;
+        if (!targetStore) {
             setError(t('error_store_required'));
             return;
         }
         setConnecting(true);
         try {
-            const { authorize_url } = await apiFetch<{ authorize_url: string }>(`/lazada/authorize/?store=${selectedStore}`);
+            const { authorize_url } = await apiFetch<{ authorize_url: string }>(`/lazada/authorize/?store=${targetStore}`);
             window.open(authorize_url, '_blank', 'noopener,noreferrer');
         } catch (err) {
             setError(err instanceof ApiError ? String((err.body as { error?: string })?.error ?? err.message) : t('lazada_connect_error'));
@@ -123,6 +124,14 @@ const ComponentsSettingsLazadaConnect = () => {
                     <button type="button" onClick={syncNow} disabled={syncing} className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-60">
                         {syncing ? t('loading') : t('lazada_sync_now')}
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => connect(lazadaStatus.store_id ? String(lazadaStatus.store_id) : undefined)}
+                        disabled={connecting}
+                        className="btn btn-outline-primary ltr:ml-2 rtl:mr-2 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        {connecting ? t('loading') : t('lazada_test_oauth')}
+                    </button>
                     {syncResult && (
                         <p className="text-white-dark">
                             {t('lazada_sync_result')
@@ -145,7 +154,7 @@ const ComponentsSettingsLazadaConnect = () => {
                             ))}
                         </select>
                     </div>
-                    <button type="button" onClick={connect} disabled={connecting} className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-60">
+                    <button type="button" onClick={() => connect()} disabled={connecting} className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-60">
                         {connecting ? t('loading') : t('lazada_connect')}
                     </button>
                 </div>
