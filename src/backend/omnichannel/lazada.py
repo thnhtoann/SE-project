@@ -288,6 +288,8 @@ class LazadaSyncOrdersView(APIView):
             return Response({"error": f"{response.code}: {response.message}"}, status=status.HTTP_502_BAD_GATEWAY)
 
         orders = (body.get('data') or {}).get('orders') or []
+        if not orders:
+            logger.warning("Lazada /orders/get returned no orders; raw response=%r", body)
 
         synced, skipped, errors = [], [], []
         for order in orders:
