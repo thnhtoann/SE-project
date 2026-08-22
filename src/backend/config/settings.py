@@ -127,9 +127,15 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+# Plain WhiteNoise storage, not CompressedManifestStaticFilesStorage — this
+# app only serves the Django admin's static assets (low traffic, no CDN-tier
+# caching need), and the Manifest variant's per-file gzip+brotli+MD5-hash
+# pass during collectstatic was slow enough on a constrained PaaS CPU to
+# blow past the platform's deploy healthcheck window. WhiteNoiseMiddleware
+# still gzips responses on the fly at request time either way.
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
-    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
 }
 
 # NOTE: MEDIA_ROOT is local container disk — fine for local Docker Compose,
