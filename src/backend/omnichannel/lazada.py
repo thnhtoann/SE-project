@@ -314,3 +314,57 @@ class LazadaSyncOrdersView(APIView):
             "skipped": skipped,
             "errors": errors,
         })
+
+
+class LazadaProductsView(APIView):
+    """ Lấy danh sách sản phẩm thật từ tài khoản Lazada đã kết nối. Trả về
+    dạng phẳng theo từng SKU (ShopSku khớp với shop_sku dùng trong đồng bộ
+    đơn hàng ở trên) để dễ đối chiếu với barcode trong catalog Mart+. """
+    permission_classes = [IsChainManager]
+
+    def get(self, request):
+        credential = LazadaCredential.objects.select_related('store').first()
+        if not credential:
+            return Response(
+                {"error": "Chưa kết nối tài khoản Lazada nào."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            credential = _refresh_token_if_needed(credential)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        req = LazopRequest('/products/get', http_method='GET')
+        req.add_api_param('filter', request.query_params.get('filter', 'all'))
+        req.add_api_param('limit', '50')
+        req.add_api_param('offset', '0')
+
+        try:
+            response = _api_client().execute(req, credential.access_token)
+        except Exception:
+            logger.exception("Lazada /products/get request failed")
+            return Response({"error": "Không gọi được API Lazada /products/get."}, status=status.HTTP_502_BAD_GATEWAY)
+
+        body = response.body or {}
+        if response.code and response.code != '0':
+            return Response({"error": f"{response.code}: {response.message}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        data = body.get('data') or {}
+        raw_products = data.get('products') or []
+
+        products = []
+        for p in raw_products:
+            attributes = p.get('attributes') or {}
+            for sku in p.get('skus') or []:
+                products.append({
+                    "item_id": p.get('item_id'),
+                    "name": attributes.get('name'),
+                    "shop_sku": sku.get('ShopSku'),
+                    "seller_sku": sku.get('SellerSku'),
+                    "price": sku.get('price'),
+                    "quantity": sku.get('quantity'),
+                    "status": sku.get('Status'),
+                })
+
+        return Response({"total_products": data.get('total_products'), "products": products})
