@@ -130,6 +130,40 @@ class LazadaCallbackView(APIView):
         return redirect(f"{settings.FRONTEND_BASE_URL}/settings/store?lazada=connected")
 
 
+class LazadaManualConnectView(APIView):
+    """ Kết nối thủ công bằng access token lấy trực tiếp từ App Console
+    (Sandbox Test -> Test Case -> Get Token), bỏ qua luồng redirect OAuth
+    qua trình duyệt -- hữu ích khi tài khoản test sandbox không có mật khẩu
+    để đăng nhập Seller Center. """
+    permission_classes = [IsChainManager]
+
+    def post(self, request):
+        store_id = request.data.get('store')
+        access_token = request.data.get('access_token')
+
+        if not store_id or not Store.objects.filter(pk=store_id).exists():
+            return Response(
+                {"error": "Vui lòng chọn cửa hàng (store) hợp lệ để gắn với tài khoản Lazada."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not access_token:
+            return Response({"error": "Thiếu access_token."}, status=status.HTTP_400_BAD_REQUEST)
+
+        store = Store.objects.get(pk=store_id)
+        now = timezone.now()
+        LazadaCredential.objects.update_or_create(
+            store=store,
+            defaults={
+                'account': request.data.get('account', ''),
+                'access_token': access_token,
+                'refresh_token': request.data.get('refresh_token', ''),
+                'access_token_expires_at': now + timedelta(seconds=int(request.data.get('expires_in', 3600))),
+                'refresh_token_expires_at': now + timedelta(seconds=int(request.data.get('refresh_expires_in', 2592000))),
+            },
+        )
+        return Response({"status": "connected"})
+
+
 class LazadaStatusView(APIView):
     """ Trạng thái kết nối hiện tại (cho UI hiển thị) """
     permission_classes = [IsChainManager | IsStoreManager]
