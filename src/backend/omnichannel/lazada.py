@@ -21,7 +21,7 @@ response, LazadaSyncOrdersView reports the raw error per order in its
 `errors` list so it's a quick fix, not a silent failure.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -38,6 +38,10 @@ from .models import LazadaCredential
 from .services import OrderSaveError, save_normalized_order
 
 logger = logging.getLogger(__name__)
+
+# Lazada's date-range params are documented as "+07:00" (Vietnam) local time,
+# not UTC -- used to format created_after/created_before below.
+VN_TZ = dt_timezone(timedelta(hours=7))
 
 
 def _auth_client():
@@ -259,11 +263,15 @@ class LazadaSyncOrdersView(APIView):
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         lookback_days = int(request.data.get('days', 30))
-        created_after = credential.last_synced_at or (timezone.now() - timedelta(days=lookback_days))
+        now = timezone.now()
+        created_after = credential.last_synced_at or (now - timedelta(days=lookback_days))
 
         req = LazopRequest('/orders/get', http_method='GET')
-        req.add_api_param('created_after', created_after.strftime('%Y-%m-%dT%H:%M:%S+07:00'))
-        req.add_api_param('sort_direction', 'ASC')
+        req.add_api_param('created_after', created_after.astimezone(VN_TZ).strftime('%Y-%m-%dT%H:%M:%S+07:00'))
+        req.add_api_param('created_before', now.astimezone(VN_TZ).strftime('%Y-%m-%dT%H:%M:%S+07:00'))
+        req.add_api_param('sort_direction', 'DESC')
+        req.add_api_param('offset', '0')
+        req.add_api_param('limit', '100')
 
         try:
             response = _api_client().execute(req, credential.access_token)
