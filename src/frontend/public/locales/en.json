@@ -465,7 +465,6 @@
     "lazada_last_synced": "Last synced",
     "lazada_never_synced": "Never",
     "lazada_sync_now": "Sync orders now",
-    "lazada_test_oauth": "Test OAuth Login",
     "lazada_sync_result": "Fetched {fetched}, synced {synced}, {errors} issue(s).",
     "lazada_connected_notice": "Lazada account connected successfully.",
     "lazada_connect_error": "Failed to connect Lazada account.",
