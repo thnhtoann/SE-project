@@ -60,6 +60,43 @@ export interface OrderRecord {
     external_order_id: string | null;
 }
 
+// Mirrors core.Category (fields='__all__').
+export interface CategoryRecord {
+    category_id: number;
+    category_name: string;
+}
+
+// Mirrors core.Batch (fields='__all__') -- named ...ApiRecord to avoid
+// colliding with the unrelated mock Batch shape in this file (nested
+// storeInventory, no `product` FK id) that the inventory list's display
+// helpers (lib/inventory.ts) are still written against.
+export interface BatchApiRecord {
+    batch_id: number;
+    product: number;
+    manufacture_date: string;
+    expiration_date: string;
+}
+
+// Mirrors core.StoreInventory (fields='__all__').
+export interface StoreInventoryApiRecord {
+    id: number;
+    store: number;
+    batch: number;
+    quantity: number;
+}
+
+// Mirrors core.Product (fields='__all__') -- named ...ApiRecord for the
+// same reason as BatchApiRecord above (category is a plain FK id here,
+// not a name string, and there's no supplier/photo/tags/etc.).
+export interface ProductApiRecord {
+    product_id: number;
+    barcode: string;
+    product_name: string;
+    base_price: string;
+    min_threshold: number;
+    category: number;
+}
+
 export interface StaffRecord {
     staff_id: number;
     username: string;

@@ -8,7 +8,7 @@ import IconPlus from '@/components/icon/icon-plus';
 import IconSearch from '@/components/icon/icon-search';
 import IconTrashLines from '@/components/icon/icon-trash-lines';
 import IconTrendingUp from '@/components/icon/icon-trending-up';
-import { PRODUCTS, SUPPLIERS } from '@/data/mock-products';
+import { apiFetch } from '@/lib/api-client';
 import { getTranslation } from '@/i18n';
 import {
     discountedPrice,
@@ -21,36 +21,104 @@ import {
     stockStatusBadgeClass,
     stockStatusKey,
 } from '@/lib/inventory';
-import { ExpiryStatus, Product } from '@/types/admin';
+import { BatchApiRecord, CategoryRecord, ExpiryStatus, Product, ProductApiRecord, StoreInventoryApiRecord, StoreRecord } from '@/types/admin';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
 
-const supplierName = (supplierId: number) => SUPPLIERS.find((s) => s.supplier_id === supplierId)?.supplier_name ?? '—';
-
 type ExpiryFilter = 'all' | ExpiryStatus;
+
+// Assembles core.Product + core.Batch + core.StoreInventory (three separate
+// flat endpoints) into the nested Product shape lib/inventory.ts's display
+// helpers already expect -- keeps those helpers, and every column below,
+// unchanged. There's no real supplier link on core.Product, so supplier_id
+// is an unused placeholder and the Supplier column is dropped entirely
+// rather than showing fabricated data.
+const assembleProducts = (
+    products: ProductApiRecord[],
+    categories: CategoryRecord[],
+    batches: BatchApiRecord[],
+    inventories: StoreInventoryApiRecord[],
+    stores: StoreRecord[],
+): Product[] => {
+    const categoryName = Object.fromEntries(categories.map((c) => [c.category_id, c.category_name]));
+    const storeName = Object.fromEntries(stores.map((s) => [s.store_id, s.store_name]));
+
+    const inventoriesByBatch = new Map<number, StoreInventoryApiRecord[]>();
+    inventories.forEach((inv) => {
+        const list = inventoriesByBatch.get(inv.batch) ?? [];
+        list.push(inv);
+        inventoriesByBatch.set(inv.batch, list);
+    });
+
+    const batchesByProduct = new Map<number, BatchApiRecord[]>();
+    batches.forEach((b) => {
+        const list = batchesByProduct.get(b.product) ?? [];
+        list.push(b);
+        batchesByProduct.set(b.product, list);
+    });
+
+    return products.map((p) => ({
+        product_id: p.product_id,
+        barcode: p.barcode,
+        product_name: p.product_name,
+        base_price: Number(p.base_price),
+        min_threshold: p.min_threshold,
+        category: categoryName[p.category] ?? '—',
+        photo: '',
+        unit: '',
+        tags: [],
+        description: '',
+        supplier_id: 0,
+        discountHistory: [],
+        batches: (batchesByProduct.get(p.product_id) ?? []).map((b) => ({
+            batch_id: b.batch_id,
+            product_id: b.product,
+            manufacture_date: b.manufacture_date,
+            expiration_date: b.expiration_date,
+            storeInventory: (inventoriesByBatch.get(b.batch_id) ?? []).map((inv) => ({
+                store: storeName[inv.store] ?? '—',
+                quantity: inv.quantity,
+            })),
+        })),
+    }));
+};
 
 const ComponentsInventoryList = () => {
     const { t } = getTranslation();
-    const [items, setItems] = useState(PRODUCTS);
+    const [items, setItems] = useState<Product[]>([]);
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
-    const [filtered, setFiltered] = useState(items);
 
     useEffect(() => {
-        setFiltered(
+        Promise.all([
+            apiFetch<ProductApiRecord[]>('/products/'),
+            apiFetch<CategoryRecord[]>('/categories/'),
+            apiFetch<BatchApiRecord[]>('/batches/'),
+            apiFetch<StoreInventoryApiRecord[]>('/store-inventories/'),
+            apiFetch<StoreRecord[]>('/stores/'),
+        ])
+            .then(([products, categories, batches, inventories, stores]) => {
+                setItems(assembleProducts(products, categories, batches, inventories, stores));
+            })
+            .catch(() => setItems([]))
+            .finally(() => setLoading(false));
+    }, []);
+
+    const filtered = useMemo(
+        () =>
             items.filter((product) => {
                 const matchesSearch =
                     product.product_name.toLowerCase().includes(search.toLowerCase()) ||
                     product.barcode.includes(search) ||
-                    product.category.toLowerCase().includes(search.toLowerCase()) ||
-                    supplierName(product.supplier_id).toLowerCase().includes(search.toLowerCase());
+                    product.category.toLowerCase().includes(search.toLowerCase());
                 const matchesExpiry = expiryFilter === 'all' || getProductExpiryStatus(product) === expiryFilter;
                 return matchesSearch && matchesExpiry;
             }),
-        );
-    }, [search, expiryFilter, items]);
+        [items, search, expiryFilter],
+    );
 
     const totalProducts = items.length;
     const lowOrOutOfStock = items.filter((p) => getStockStatus(p) !== 'In Stock').length;
@@ -59,9 +127,13 @@ const ComponentsInventoryList = () => {
 
     const deleteProduct = useCallback(
         (id: number) => {
-            if (window.confirm(t('confirm_delete_product'))) {
-                setItems((prev) => prev.filter((p) => p.product_id !== id));
-            }
+            if (!window.confirm(t('confirm_delete_product'))) return;
+            apiFetch(`/products/${id}/`, { method: 'DELETE' })
+                .then(() => setItems((prev) => prev.filter((p) => p.product_id !== id)))
+                .catch(() => {
+                    // Leave the row in place — most likely a 4xx because the
+                    // product is still referenced elsewhere (e.g. an OrderDetail).
+                });
         },
         [t],
     );
@@ -105,7 +177,6 @@ const ComponentsInventoryList = () => {
                     );
                 },
             },
-            { key: 'supplier', header: t('supplier'), sortable: true, sortValue: (p) => supplierName(p.supplier_id), render: (p) => supplierName(p.supplier_id) },
             {
                 key: 'price',
                 header: t('price'),
@@ -232,7 +303,11 @@ const ComponentsInventoryList = () => {
                         </div>
                     </div>
 
-                    <AdminTable columns={columns} rows={filtered} rowKey={(p) => p.product_id} emptyMessage={t('no_products_found')} />
+                    {loading ? (
+                        <div className="py-10 text-center text-white-dark">{t('loading')}</div>
+                    ) : (
+                        <AdminTable columns={columns} rows={filtered} rowKey={(p) => p.product_id} emptyMessage={t('no_products_found')} />
+                    )}
                 </div>
             </div>
         </div>
