@@ -10,6 +10,11 @@ import { ACCESS_TOKEN_COOKIE } from '@/lib/session-cookie-names';
 export function middleware(request: NextRequest) {
     const hasAccessToken = Boolean(request.cookies.get(ACCESS_TOKEN_COOKIE)?.value);
 
+    if (request.nextUrl.pathname === '/login') {
+        // Already have a session — skip the login form and go straight in.
+        return hasAccessToken ? NextResponse.redirect(new URL('/', request.url)) : NextResponse.next();
+    }
+
     if (!hasAccessToken) {
         const loginUrl = new URL('/login', request.url);
         loginUrl.searchParams.set('redirect', request.nextUrl.pathname);
@@ -20,5 +25,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ['/((?!login|register|reset-password|_next/static|_next/image|assets|favicon.ico).*)'],
+    matcher: ['/((?!register|reset-password|_next/static|_next/image|assets|favicon.ico).*)'],
 };

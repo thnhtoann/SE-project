@@ -4,7 +4,15 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/a
 
 // These don't take/need an access token yet, so never attach one or try to
 // refresh on their 401s (that would loop).
-const UNAUTHENTICATED_PATHS = ['/login/request-otp/', '/login/verify-otp/', '/token/refresh/'];
+const UNAUTHENTICATED_PATHS = [
+    '/login/request-otp/',
+    '/login/verify-otp/',
+    '/token/refresh/',
+    '/register/request-otp/',
+    '/register/verify-otp/',
+    '/password-reset/request-otp/',
+    '/password-reset/verify-otp/',
+];
 
 export class ApiError extends Error {
     status: number;

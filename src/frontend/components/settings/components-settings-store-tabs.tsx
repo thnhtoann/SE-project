@@ -8,6 +8,7 @@ import IconPhoneCall from '@/components/icon/icon-phone-call';
 import IconRouter from '@/components/icon/icon-router';
 import IconShoppingBag from '@/components/icon/icon-shopping-bag';
 import IconShoppingCart from '@/components/icon/icon-shopping-cart';
+import ComponentsSettingsLazadaConnect from '@/components/settings/components-settings-lazada-connect';
 import { MARKETPLACE_CHANNEL_SETTINGS, PAYMENT_METHOD_SETTINGS, STORE_INFORMATION } from '@/data/mock-settings';
 import { getTranslation } from '@/i18n';
 import { BusinessSector, MarketplaceChannelSetting, PaymentMethod, PaymentMethodSetting } from '@/types/admin';
@@ -263,6 +264,7 @@ const ComponentsSettingsStoreTabs = () => {
 
                 {tab === 'omnichannel' && (
                     <div className="panel">
+                        <ComponentsSettingsLazadaConnect />
                         <div className="mb-5">
                             <h5 className="text-lg font-semibold">{t('connected_channels')}</h5>
                             <p className="text-white-dark">{t('connected_channels_description')}</p>
