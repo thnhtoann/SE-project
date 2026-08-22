@@ -262,9 +262,13 @@ class LazadaSyncOrdersView(APIView):
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        lookback_days = int(request.data.get('days', 30))
         now = timezone.now()
-        created_after = credential.last_synced_at or (now - timedelta(days=lookback_days))
+        if 'days' in request.data:
+            # Explicit lookback overrides incremental sync -- e.g. a manual
+            # "resync the last N days" rather than "since last sync".
+            created_after = now - timedelta(days=int(request.data['days']))
+        else:
+            created_after = credential.last_synced_at or (now - timedelta(days=30))
 
         req = LazopRequest('/orders/get', http_method='GET')
         req.add_api_param('created_after', created_after.astimezone(VN_TZ).strftime('%Y-%m-%dT%H:%M:%S+07:00'))
