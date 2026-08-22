@@ -16,6 +16,15 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./src/backend
@@ -29,16 +38,26 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       GRABMART_WEBHOOK_SECRET: ${GRABMART_WEBHOOK_SECRET:-dev-grabmart-secret}
       SHOPEEFOOD_WEBHOOK_SECRET: ${SHOPEEFOOD_WEBHOOK_SECRET:-dev-shopeefood-secret}
       BEMART_WEBHOOK_SECRET: ${BEMART_WEBHOOK_SECRET:-dev-bemart-secret}
+      LAZADA_APP_KEY: ${LAZADA_APP_KEY:-}
+      LAZADA_APP_SECRET: ${LAZADA_APP_SECRET:-}
+      LAZADA_API_URL: ${LAZADA_API_URL:-https://api.lazada.vn/rest}
+      LAZADA_AUTH_URL: ${LAZADA_AUTH_URL:-https://auth.lazada.com/rest}
+      LAZADA_AUTHORIZE_PAGE_URL: ${LAZADA_AUTHORIZE_PAGE_URL:-https://auth.lazada.com/oauth/authorize}
+      LAZADA_REDIRECT_URI: ${LAZADA_REDIRECT_URI:-http://localhost:8000/api/lazada/callback/}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
     volumes:
       - ./src/backend:/app
     ports:
       - "8000:8000"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:

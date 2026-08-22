@@ -5,6 +5,7 @@ Configuration is read from environment variables so the same settings
 module works both in Docker Compose and, if needed, outside it.
 """
 import os
+import dj_database_url
 from pathlib import Path
 from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -17,11 +18,37 @@ GRABMART_WEBHOOK_SECRET = os.environ.get('GRABMART_WEBHOOK_SECRET', 'dev-grabmar
 SHOPEEFOOD_WEBHOOK_SECRET = os.environ.get('SHOPEEFOOD_WEBHOOK_SECRET', 'dev-shopeefood-secret')
 BEMART_WEBHOOK_SECRET = os.environ.get('BEMART_WEBHOOK_SECRET', 'dev-bemart-secret')
 
+# Lazada Open Platform OAuth app credentials (sandbox or production seller
+# account) — from the app's "My Apps" page in the Lazada Open Platform
+# console. This is a separate, deliberately-not-spec-005 integration style
+# (OAuth + polling, see omnichannel/lazada.py) used to pull real orders from
+# a connected seller account, unlike the mocked shared-secret webhooks above.
+LAZADA_APP_KEY = os.environ.get('LAZADA_APP_KEY', '')
+LAZADA_APP_SECRET = os.environ.get('LAZADA_APP_SECRET', '')
+# REST gateway for signed calls (token create/refresh, orders/items) — set by LazopClient per call.
+LAZADA_API_URL = os.environ.get('LAZADA_API_URL', 'https://api.lazada.vn/rest')
+LAZADA_AUTH_URL = os.environ.get('LAZADA_AUTH_URL', 'https://auth.lazada.com/rest')
+# The human-facing consent page (plain redirect, not a signed API call).
+LAZADA_AUTHORIZE_PAGE_URL = os.environ.get('LAZADA_AUTHORIZE_PAGE_URL', 'https://auth.lazada.com/oauth/authorize')
+LAZADA_REDIRECT_URI = os.environ.get('LAZADA_REDIRECT_URI', 'http://localhost:8000/api/lazada/callback/')
+FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000')
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
     if host.strip()
 ]
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+
+# PaaS platforms (Railway, Render, etc.) terminate TLS at their own proxy and
+# forward plain HTTP internally, flagging the original scheme via this
+# header — without it Django thinks every request is insecure.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -42,6 +69,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -71,15 +99,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# Prefers DATABASE_URL when set (the single-connection-string form every
+# PaaS Postgres add-on provides, e.g. Railway) and falls back to the
+# individual POSTGRES_* vars Docker Compose sets locally.
+_local_db_url = (
+    f"postgresql://{os.environ.get('POSTGRES_USER', 'app_user')}:"
+    f"{os.environ.get('POSTGRES_PASSWORD', 'app_password')}@"
+    f"{os.environ.get('POSTGRES_HOST', 'localhost')}:"
+    f"{os.environ.get('POSTGRES_PORT', '5432')}/"
+    f"{os.environ.get('POSTGRES_DB', 'app_db')}"
+)
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_DB', 'app_db'),
-        'USER': os.environ.get('POSTGRES_USER', 'app_user'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'app_password'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-    }
+    'default': dj_database_url.config(default=_local_db_url, conn_max_age=600),
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -95,17 +126,20 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
 
+# NOTE: MEDIA_ROOT is local container disk — fine for local Docker Compose,
+# but on most PaaS deploys (Railway included) the filesystem is ephemeral,
+# so uploaded files (e.g. StaffDocument) are lost on every redeploy/restart.
+# Swap to object storage (S3-compatible) before relying on uploads in prod.
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
-    ],
-}
 
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
@@ -113,9 +147,26 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+}
+
+# Shared cache backend for cross-process state (login lockout / OTP-attempt
+# counters in core/views.py). Django's default LocMemCache is per-process,
+# so those counters would silently reset per worker under gunicorn — Redis
+# makes them consistent across all workers.
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': os.environ.get('REDIS_URL', 'redis://redis:6379/0'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+    }
 }
 
 AUTH_USER_MODEL = 'core.Staff'
