@@ -2,78 +2,135 @@
 import AdminTable, { AdminTableColumn } from '@/components/datatable/admin-table';
 import IconSearch from '@/components/icon/icon-search';
 import { statusBadgeClass } from '@/components/dashboard/components-dashboard-analytics';
-import { POS_TRANSACTIONS } from '@/data/mock-transactions';
+import { apiFetch } from '@/lib/api-client';
 import { getTranslation } from '@/i18n';
-import { PaymentMethod, PosTransaction } from '@/types/admin';
+import { OrderRecord, StaffRecord, StoreRecord } from '@/types/admin';
 import { useEffect, useMemo, useState } from 'react';
 
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
+const currency = (value: string) => `₫${Math.round(Number(value)).toLocaleString('en-US')}`;
 
-const paymentMethodBadgeClass: Record<PaymentMethod, string> = {
-    Card: 'bg-info-light text-info dark:bg-info dark:text-info-light',
-    MoMo: 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light',
-    Cash: 'bg-success-light text-success dark:bg-success dark:text-success-light',
-    'Online Banking': 'bg-primary-light text-primary dark:bg-primary dark:text-primary-light',
-};
+const defaultBadgeClass = 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]';
 
-const paymentMethodKey: Record<PaymentMethod, string> = {
-    Card: 'payment_method_card',
-    MoMo: 'payment_method_momo',
-    Cash: 'cash',
-    'Online Banking': 'payment_method_online_banking',
-};
-
-const statusKey: Record<PosTransaction['status'], string> = {
-    Completed: 'transaction_status_completed',
-    Pending: 'transaction_status_pending',
-    Canceled: 'transaction_status_canceled',
+// Fixed colors for the channels this project already knows about (matches
+// CHANNEL_REVENUE in mock-dashboards.ts); anything else falls back to
+// defaultBadgeClass rather than needing a code change to show up.
+const channelBadgeClass: Record<string, string> = {
+    POS: 'bg-primary-light text-primary dark:bg-primary dark:text-primary-light',
+    Lazada: 'bg-info-light text-info dark:bg-info dark:text-info-light',
+    GrabMart: 'bg-success-light text-success dark:bg-success dark:text-success-light',
+    ShopeeFood: 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light',
+    BeMart: 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light',
 };
 
 const ComponentsTransactionsList = () => {
     const { t } = getTranslation();
+    const [orders, setOrders] = useState<OrderRecord[]>([]);
+    const [staffById, setStaffById] = useState<Record<number, string>>({});
+    const [storeById, setStoreById] = useState<Record<number, string>>({});
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [filtered, setFiltered] = useState(POS_TRANSACTIONS);
+    const [channel, setChannel] = useState('all');
 
     useEffect(() => {
-        setFiltered(
-            POS_TRANSACTIONS.filter(
-                (tx) =>
-                    tx.id.toLowerCase().includes(search.toLowerCase()) ||
-                    tx.customer.toLowerCase().includes(search.toLowerCase()) ||
-                    tx.cashier.toLowerCase().includes(search.toLowerCase()),
-            ),
-        );
-    }, [search]);
+        Promise.all([
+            apiFetch<OrderRecord[]>('/orders/'),
+            apiFetch<StaffRecord[]>('/staff/'),
+            apiFetch<StoreRecord[]>('/stores/'),
+        ])
+            .then(([orderRows, staffRows, storeRows]) => {
+                setOrders(orderRows);
+                setStaffById(Object.fromEntries(staffRows.map((s) => [s.staff_id, s.full_name])));
+                setStoreById(Object.fromEntries(storeRows.map((s) => [s.store_id, s.store_name])));
+            })
+            .catch(() => {
+                setOrders([]);
+            })
+            .finally(() => setLoading(false));
+    }, []);
 
-    const columns: AdminTableColumn<PosTransaction>[] = useMemo(
+    const channels = useMemo(() => Array.from(new Set(orders.map((o) => o.order_type))).sort(), [orders]);
+
+    const filtered = useMemo(() => {
+        const q = search.toLowerCase();
+        return orders.filter((order) => {
+            if (channel !== 'all' && order.order_type !== channel) return false;
+            if (!q) return true;
+            const cashier = order.staff ? (staffById[order.staff] ?? '') : '';
+            return (
+                String(order.order_id).includes(q) ||
+                (order.external_order_id ?? '').toLowerCase().includes(q) ||
+                order.order_type.toLowerCase().includes(q) ||
+                cashier.toLowerCase().includes(q)
+            );
+        });
+    }, [orders, search, channel, staffById]);
+
+    const columns: AdminTableColumn<OrderRecord>[] = useMemo(
         () => [
             {
-                key: 'id',
+                key: 'order_id',
                 header: t('transaction_id'),
                 sortable: true,
-                sortValue: (tx) => tx.id,
-                render: (tx) => <span className="font-semibold">#{tx.id}</span>,
+                sortValue: (o) => o.order_id,
+                render: (o) => (
+                    <div>
+                        <span className="font-semibold">#{o.order_id}</span>
+                        {o.external_order_id && <div className="text-xs text-white-dark">{o.external_order_id}</div>}
+                    </div>
+                ),
             },
-            { key: 'customer', header: t('customer'), sortable: true, sortValue: (tx) => tx.customer, render: (tx) => tx.customer },
-            { key: 'amount', header: t('amount'), sortable: true, align: 'right', sortValue: (tx) => tx.amount, render: (tx) => <span className="font-semibold">{currency(tx.amount)}</span> },
             {
-                key: 'paymentMethod',
+                key: 'order_type',
+                header: t('channel'),
+                sortable: true,
+                sortValue: (o) => o.order_type,
+                render: (o) => <span className={`badge ${channelBadgeClass[o.order_type] ?? defaultBadgeClass}`}>{o.order_type}</span>,
+            },
+            {
+                key: 'store',
+                header: t('store'),
+                sortable: true,
+                sortValue: (o) => storeById[o.store] ?? '',
+                render: (o) => storeById[o.store] ?? '—',
+            },
+            {
+                key: 'amount',
+                header: t('amount'),
+                sortable: true,
+                align: 'right',
+                sortValue: (o) => Number(o.total_amount),
+                render: (o) => <span className="font-semibold">{currency(o.total_amount)}</span>,
+            },
+            {
+                key: 'payment_method',
                 header: t('payment_method'),
                 sortable: true,
-                sortValue: (tx) => tx.paymentMethod,
-                render: (tx) => <span className={`badge ${paymentMethodBadgeClass[tx.paymentMethod]}`}>{t(paymentMethodKey[tx.paymentMethod])}</span>,
+                sortValue: (o) => o.payment_method,
+                render: (o) => o.payment_method,
             },
-            { key: 'cashier', header: t('cashier'), sortable: true, sortValue: (tx) => tx.cashier, render: (tx) => tx.cashier },
+            {
+                key: 'cashier',
+                header: t('cashier'),
+                sortable: true,
+                sortValue: (o) => (o.staff ? (staffById[o.staff] ?? '') : ''),
+                render: (o) => (o.staff ? (staffById[o.staff] ?? '—') : '—'),
+            },
             {
                 key: 'status',
                 header: t('status'),
                 sortable: true,
-                sortValue: (tx) => tx.status,
-                render: (tx) => <span className={`badge ${statusBadgeClass[tx.status]}`}>{t(statusKey[tx.status])}</span>,
+                sortValue: (o) => o.status,
+                render: (o) => <span className={`badge ${statusBadgeClass[o.status] ?? defaultBadgeClass}`}>{o.status}</span>,
             },
-            { key: 'date', header: t('date'), sortable: true, sortValue: (tx) => tx.date, render: (tx) => tx.date },
+            {
+                key: 'order_date',
+                header: t('date'),
+                sortable: true,
+                sortValue: (o) => o.order_date,
+                render: (o) => new Date(o.order_date).toLocaleString(),
+            },
         ],
-        [t],
+        [t, staffById, storeById],
     );
 
     return (
@@ -90,22 +147,36 @@ const ComponentsTransactionsList = () => {
             <div className="pt-5">
                 <div className="panel">
                     <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <h2 className="text-xl">{t('pos_transactions')}</h2>
-                        <div className="relative">
-                            <input
-                                type="text"
-                                placeholder={t('search_transactions_placeholder')}
-                                className="peer form-input py-2 ltr:pr-11 rtl:pl-11"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
-                            <span className="absolute top-1/2 -translate-y-1/2 peer-focus:text-primary ltr:right-[11px] rtl:left-[11px]">
-                                <IconSearch className="mx-auto" />
-                            </span>
+                        <h2 className="text-xl">{t('transactions')}</h2>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <select className="form-select" value={channel} onChange={(e) => setChannel(e.target.value)}>
+                                <option value="all">{t('all_channels')}</option>
+                                {channels.map((c) => (
+                                    <option key={c} value={c}>
+                                        {c}
+                                    </option>
+                                ))}
+                            </select>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder={t('search_transactions_placeholder')}
+                                    className="peer form-input py-2 ltr:pr-11 rtl:pl-11"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                />
+                                <span className="absolute top-1/2 -translate-y-1/2 peer-focus:text-primary ltr:right-[11px] rtl:left-[11px]">
+                                    <IconSearch className="mx-auto" />
+                                </span>
+                            </div>
                         </div>
                     </div>
 
-                    <AdminTable columns={columns} rows={filtered} rowKey={(tx) => tx.id} emptyMessage={t('no_transactions_found')} />
+                    {loading ? (
+                        <div className="py-10 text-center text-white-dark">{t('loading')}</div>
+                    ) : (
+                        <AdminTable columns={columns} rows={filtered} rowKey={(o) => o.order_id} emptyMessage={t('no_transactions_found')} />
+                    )}
                 </div>
             </div>
         </div>

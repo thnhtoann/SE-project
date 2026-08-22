@@ -45,6 +45,21 @@ export interface StoreRecord {
     location: string;
 }
 
+// Mirrors core.Order (fields='__all__') -- covers both real POS checkouts
+// (order_type='POS') and synced online-marketplace orders (order_type is
+// the channel name, e.g. 'Lazada', 'GrabMart', 'ShopeeFood', 'BeMart').
+export interface OrderRecord {
+    order_id: number;
+    store: number;
+    staff: number | null;
+    order_date: string;
+    order_type: string;
+    payment_method: string;
+    total_amount: string;
+    status: string;
+    external_order_id: string | null;
+}
+
 export interface StaffRecord {
     staff_id: number;
     username: string;

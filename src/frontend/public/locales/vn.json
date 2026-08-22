@@ -301,6 +301,8 @@
     "search_transactions_placeholder": "Tìm theo mã giao dịch, khách hàng, thu ngân",
     "no_transactions_found": "Không có giao dịch nào trong danh sách hiện tại.",
     "transaction_id": "Mã giao dịch",
+    "all_channels": "Tất cả kênh",
+    "reference": "Mã tham chiếu",
     "cashier": "Thu ngân",
     "amount": "Số tiền",
     "status": "Trạng thái",
