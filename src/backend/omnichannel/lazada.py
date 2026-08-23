@@ -95,6 +95,11 @@ class LazadaCallbackView(APIView):
     -> Đổi code lấy access/refresh token -> Lưu LazadaCredential. """
     permission_classes = []
 
+    def post(self, request):
+        # Lazada's console "verify" step pings the redirect URI with POST
+        # (the real OAuth redirect from a seller's browser is always GET).
+        return self.get(request)
+
     def get(self, request):
         code = request.query_params.get('code')
         store_id = request.query_params.get('state')
