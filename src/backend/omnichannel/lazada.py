@@ -108,6 +108,10 @@ class LazadaCallbackView(APIView):
             # Lazada console's "verify" step pings this URL with no query
             # params and expects a direct 200, not a redirect to the
             # (possibly unreachable from Lazada's side) frontend.
+            logger.info(
+                "Lazada callback verification ping: method=%s headers=%s body=%r",
+                request.method, dict(request.headers), request.body,
+            )
             return Response(status=status.HTTP_200_OK)
 
         if not code or not store_id:
