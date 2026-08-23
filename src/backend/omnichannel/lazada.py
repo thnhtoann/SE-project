@@ -99,6 +99,12 @@ class LazadaCallbackView(APIView):
         code = request.query_params.get('code')
         store_id = request.query_params.get('state')
 
+        if not code and not store_id:
+            # Lazada console's "verify" step pings this URL with no query
+            # params and expects a direct 200, not a redirect to the
+            # (possibly unreachable from Lazada's side) frontend.
+            return Response(status=status.HTTP_200_OK)
+
         if not code or not store_id:
             return redirect(f"{settings.FRONTEND_BASE_URL}/settings/store?lazada=error")
 
