@@ -25,6 +25,15 @@ class OmnichannelWebhookNormalizationTests(APITestCase):
             min_threshold=10,
             category=category,
         )
+        # Seed enough stock so webhook-triggered deduct_stock() has something
+        # to deduct from -- without this, every test here hits
+        # InsufficientStockError (409) instead of a successful order.
+        batch = Batch.objects.create(
+            product=self.product,
+            manufacture_date=date.today() - timedelta(days=10),
+            expiration_date=date.today() + timedelta(days=30),
+        )
+        StoreInventory.objects.create(store=self.store, batch=batch, quantity=100)
 
     def test_grabmart_webhook_creates_order_and_details(self):
         payload = {
