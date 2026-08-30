@@ -48,7 +48,7 @@ fail the test or affect production code paths, but worth a follow-up fixture cle
 
 ## 2. OMNI-1 — Webhook listener verification
 
-Re-confirmed against `docs/test/omni-1-webhook-verification.md`.
+Re-confirmed against `docs/test/omnichannel/omni-1-webhook-verification.md`.
 
 **Result: PASS** — all 3 platforms (GrabMart, ShopeeFood, BeMart) accept valid-signature
 requests and reject missing/invalid signatures with 401.
@@ -57,7 +57,7 @@ requests and reject missing/invalid signatures with 401.
 
 ## 3. OMNI-6 — Race condition / concurrency
 
-Re-confirmed against `docs/test/omni-6-race-condition-report.md`.
+Re-confirmed against `docs/test/omnichannel/omni-6-race-condition-report.md`.
 
 **Result: PASS** — 380 concurrent requests for 1 unit of stock: exactly 1 succeeded (200), 379
 correctly rejected (409 Insufficient Stock). Final inventory quantity landed at exactly 0, never
@@ -67,7 +67,7 @@ negative.
 
 ## 4. FCST-1–6 — Demand forecasting
 
-Re-confirmed against `docs/test/fcst-forecast-verification.md`.
+Re-confirmed against `docs/test/forecasting/fcst-forecast-verification.md`.
 
 **Result: PASS** — 20/20 synthetic products fit by Prophet with zero skips. RBAC enforced
 (401 unauthenticated, 200 for Store/Chain Manager role). Reorder recommendations computed
@@ -81,7 +81,7 @@ already-verified baseline, not new tuning.
 
 ## 5. Postman collection — OMNI-1, OMNI-5, FCST-5
 
-**Collection**: `docs/test/omnichannel-forecasting.postman_collection.json`
+**Collection**: `docs/test/omnichannel/omnichannel-forecasting.postman_collection.json`
 
 **Result: PASS** — 21/21 assertions passing once stock and token were correctly seeded (see
 Findings below for two test-setup issues hit and resolved during this pass).
