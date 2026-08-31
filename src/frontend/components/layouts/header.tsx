@@ -71,12 +71,8 @@ const Header = () => {
     const isRtl = useSelector((state: IRootState) => state.themeConfig.rtlClass) === 'rtl';
 
     const themeConfig = useSelector((state: IRootState) => state.themeConfig);
-    const setLocale = (flag: string) => {
-        if (flag.toLowerCase() === 'ae') {
-            dispatch(toggleRTL('rtl'));
-        } else {
-            dispatch(toggleRTL('ltr'));
-        }
+    const setLocale = () => {
+        dispatch(toggleRTL('ltr'));
         router.refresh();
     };
 
@@ -151,8 +147,8 @@ const Header = () => {
                 <div className="relative flex w-full items-center bg-white px-5 py-2.5 dark:bg-black">
                     <div className="horizontal-logo flex items-center justify-between ltr:mr-2 rtl:ml-2 lg:hidden">
                         <Link href="/" className="main-logo flex shrink-0 items-center">
-                            <img className="inline w-8 ltr:-ml-1 rtl:-mr-1" src="/assets/images/logo.svg" alt="logo" />
-                            <span className="hidden align-middle text-2xl  font-semibold  transition-all duration-300 ltr:ml-1.5 rtl:mr-1.5 dark:text-white-light md:inline">VRISTO</span>
+                            <img className="h-8 w-auto dark:invert" src="/assets/images/logo-icon.svg" alt="Mart+" />
+                            <span className="hidden align-middle text-2xl  font-semibold  transition-all duration-300 ltr:ml-1.5 rtl:mr-1.5 dark:text-white-light md:inline">Mart+</span>
                         </Link>
                         <button
                             type="button"
@@ -263,7 +259,7 @@ const Header = () => {
                                                     className={`flex w-full hover:text-primary ${i18n.language === item.code ? 'bg-primary/10 text-primary' : ''}`}
                                                     onClick={() => {
                                                         i18n.changeLanguage(item.code);
-                                                        setLocale(item.code);
+                                                        setLocale();
                                                     }}
                                                 >
                                                     <img src={`/assets/images/flags/${item.code.toUpperCase()}.svg`} alt="flag" className="h-5 w-5 rounded-full object-cover" />

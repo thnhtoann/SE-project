@@ -1,5 +1,6 @@
 from datetime import date, timedelta
-
+from django.utils import timezone
+import random
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 
@@ -45,7 +46,7 @@ class Staff(AbstractBaseUser):
     full_name = models.CharField(max_length=100)
     role = models.ForeignKey('Role', on_delete=models.PROTECT)
     store = models.ForeignKey('Store', on_delete=models.SET_NULL, null=True, blank=True)
-    
+    email = models.EmailField(max_length=255, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     
     objects = StaffManager()
@@ -221,6 +222,23 @@ class OrderDetail(models.Model):
 
     def __str__(self):
         return f"Order {self.order.order_id} - {self.product.product_name}: {self.quantity}"
+
+class OTPRecord(models.Model):
+    # Liên kết với model Staff của bạn
+    user = models.OneToOneField('Staff', on_delete=models.CASCADE, related_name='otp_record')
+    otp = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now=True) # Tự cập nhật thời gian mỗi lần sinh OTP mới
+
+    def generate_otp(self):
+        # Sinh mã 6 số ngẫu nhiên
+        self.otp = str(random.randint(100000, 999999))
+        self.save()
+        return self.otp
+
+    def is_valid(self):
+        # Hạn sử dụng OTP là 300 giây (5 phút)
+        time_diff = (timezone.now() - self.created_at).total_seconds()
+        return time_diff <= 300
 
 # 13. Bảng INVENTORY_ALERT
 class InventoryAlert(models.Model):

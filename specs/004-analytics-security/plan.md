@@ -66,8 +66,11 @@ Evaluated against `.specify/memory/constitution.md` v1.0.0:
   comparable to inventory deduction exists in this feature.
 - **IV. Event-Driven Integration via Webhooks** — NOT APPLICABLE. This feature has no external
   third-party integration surface.
-- **V. UML-Documented, Version-Controlled Design** — PASS. User stories map directly to PA1's
-  UML-derived use cases U001, U012-U014.
+- **V. UML-Documented, Version-Controlled Design** — PASS for Stories 1-5, which map directly to
+  PA1's UML-derived use cases U001, U012-U014. Stories 6-7 (Customer List, POS Transactions,
+  added 2026-08-08) have no corresponding PA1 use case — like `005-marketplace-integration`'s
+  gap on the same principle, use case/sequence diagrams for these two read-only views MUST be
+  authored under `docs/analysis and design/` alongside implementation.
 - **VI. Hardware & Network Realism** — NOT APPLICABLE. No POS hardware surface in this feature.
 
 No violations identified. Complexity Tracking table is not applicable and is omitted.
@@ -99,7 +102,8 @@ src/backend/
 │   ├── permissions.py            # Shared DRF permission classes imported by every other app
 │   └── urls.py                   # Included from config/urls.py under /api/auth/, /api/staff/
 ├── analytics/                   # New Django app: reporting + batch/expiration (User Story 3-5)
-│   ├── views.py                  # Sales report, batch list/filter, discount application
+│   ├── views.py                  # Sales report, batch list/filter, discount application,
+│   │                              # read-only customer list (US6) and POS transaction list (US7)
 │   └── urls.py                   # Included from config/urls.py under /api/analytics/
 └── config/
     ├── settings.py               # `accounts`, `analytics` added to INSTALLED_APPS;
@@ -115,25 +119,32 @@ src/frontend/
 └── app/(defaults)/
     ├── dashboards/
     │   ├── analytics/page.tsx      # Analytics Dashboard — S10
-    │   ├── store/page.tsx          # Store Dashboard — S11
-    │   └── customer/page.tsx       # Customer Dashboard — S12
+    │   └── store/page.tsx          # Store Dashboard — S11, and S12's customer panels
+    │                                # under a Customers tab (S12 merged in 2026-08-08;
+    │                                # see tasks.md T011 for the PA2 divergence note)
     ├── inventory/
     │   ├── page.tsx                 # Product List (stock/expiry status) — S13
     │   ├── [id]/page.tsx             # Product Details — S14
     │   └── add/page.tsx              # Add Product (batch/expiry entry) — S15
-    └── staff/
-        ├── page.tsx                  # Staff List (Grid) — S16
-        ├── [id]/page.tsx              # Staff Details — S17
-        └── add/page.tsx               # Add Staff — S18
+    ├── staff/
+    │   ├── page.tsx                  # Staff List (Grid) — S16
+    │   ├── [id]/page.tsx              # Staff Details — S17
+    │   └── add/page.tsx               # Add Staff — S18
+    ├── customers/
+    │   └── page.tsx                  # Customer List — S19 (US6)
+    └── transactions/
+        └── page.tsx                  # POS Transactions — S21 (US7)
 ```
 
 **Structure Decision**: Two new Django apps under `src/backend/` — `accounts` (auth/RBAC/staff,
 following the `django-app-scaffolder` skill's convention) and `analytics` (reporting/batch
 tracking) — split because they have different lifecycles: `accounts` is a foundational
 dependency the other three features need immediately, while `analytics` is a pure consumer of
-data those features produce. Frontend uses the existing `(auth)` route group (currently just a
-bare `layout.tsx`) for login/signup/reset, and adds dashboard/inventory/staff routes under the
-existing `(defaults)` group.
+data those features produce. Frontend uses the existing `(auth)` route group — login/register/
+reset-password pages already exist there (built ahead of this feature's backend) — and adds
+dashboard/inventory/staff/customers/transactions routes under the existing `(defaults)` group.
+`customers/` (US6) and `transactions/` (US7) were added 2026-08-08 alongside the corresponding
+spec.md user stories, as read-only additions to the same `analytics` app rather than new apps.
 
 ## Complexity Tracking
 
