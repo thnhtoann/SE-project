@@ -1,0 +1,578 @@
+{
+	"info": {
+		"_postman_id": "d3f1a2b4-5e6c-4a7b-9c8d-1f2e3a4b5c6d",
+		"name": "M3 - Omnichannel Hub & Forecasting API Collection",
+		"description": "Postman collection for Member 3's modules: OMNI-1 (webhooks), OMNI-5 (aggregated order list), and FCST-5 (demand forecast API). Covers webhook signature auth, JWT + RBAC on the forecast/orders endpoints.\n\nNOTE: Login is a 2-step OTP flow (request-otp -> email OTP -> verify-otp). Since EMAIL_BACKEND is the console backend, the OTP is printed to your `docker compose logs -f backend` output, not delivered anywhere Postman can read automatically. You must copy it manually - see the tutorial steps.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8000/api",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "loginUsername",
+			"value": "cm_test",
+			"type": "string"
+		},
+		{
+			"key": "loginPassword",
+			"value": "testpass123",
+			"type": "string"
+		},
+		{
+			"key": "loginEmail",
+			"value": "cm_test@example.com",
+			"type": "string"
+		},
+		{
+			"key": "otpCode",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "grabmartSecret",
+			"value": "dev-grabmart-secret",
+			"type": "string"
+		},
+		{
+			"key": "shopeefoodSecret",
+			"value": "dev-shopeefood-secret",
+			"type": "string"
+		},
+		{
+			"key": "bemartSecret",
+			"value": "dev-bemart-secret",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "0. Authentication (2-step OTP)",
+			"item": [
+				{
+					"name": "Step 1: Request OTP (username+password+email)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Response confirms OTP was sent', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('message');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{loginUsername}}\",\n    \"password\": \"{{loginPassword}}\",\n    \"email\": \"{{loginEmail}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/login/request-otp/",
+							"host": ["{{baseUrl}}"],
+							"path": ["login", "request-otp", ""]
+						},
+						"description": "Sends username/password/email. On success, an OTP is generated and 'emailed' - but since EMAIL_BACKEND is the console backend, it actually prints to the backend container's logs. Run `docker compose logs -f backend` and copy the 6-digit code into the `otpCode` collection variable before running Step 2."
+					}
+				},
+				{
+					"name": "Step 2: Verify OTP -> Get JWT",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.access) {",
+									"    pm.collectionVariables.set('token', jsonData.access);",
+									"}",
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Access token returned and saved', function () {",
+									"    pm.expect(jsonData).to.have.property('access');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{loginUsername}}\",\n    \"otp\": \"{{otpCode}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/login/verify-otp/",
+							"host": ["{{baseUrl}}"],
+							"path": ["login", "verify-otp", ""]
+						},
+						"description": "Paste the OTP you copied from the backend logs into the `otpCode` variable, then send this. On success the JWT access token is auto-saved into `{{token}}` for use by every request below."
+					}
+				}
+			]
+		},
+		{
+			"name": "1. OMNI-1: Webhook Listeners",
+			"item": [
+				{
+					"name": "GrabMart - Valid Signature",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Response has order_id', function () {",
+									"    pm.expect(pm.response.json()).to.have.property('order_id');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Grab-Signature", "value": "{{grabmartSecret}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"orderId\": \"GM-POSTMAN-001\",\n    \"storeId\": 1,\n    \"orderTime\": \"2026-08-29T09:30:00Z\",\n    \"paymentMethod\": \"GrabPay\",\n    \"items\": [{\"barcode\": \"8934673125456\", \"qty\": 1, \"price\": \"0.90\"}]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/grabmart/",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "grabmart", ""]
+						},
+						"description": "Requires a Product with barcode 8934673125456 and Store id=1 to already exist in your DB, or this returns 400."
+					}
+				},
+				{
+					"name": "GrabMart - Invalid Signature (expect 401)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 401 Unauthorized', function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"orderId\": \"GM-POSTMAN-002\",\n    \"storeId\": 1,\n    \"orderTime\": \"2026-08-29T09:30:00Z\",\n    \"paymentMethod\": \"GrabPay\",\n    \"items\": [{\"barcode\": \"8934673125456\", \"qty\": 1, \"price\": \"0.90\"}]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/grabmart/",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "grabmart", ""]
+						},
+						"description": "No X-Grab-Signature header sent on purpose - must be rejected."
+					}
+				},
+				{
+					"name": "ShopeeFood - Valid Signature",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Shopee-Signature", "value": "{{shopeefoodSecret}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"order_id\": \"SPF-POSTMAN-001\",\n    \"store_id\": 1,\n    \"created_at\": \"2026-08-29T09:30:00Z\",\n    \"payment_method\": \"ShopeePay\",\n    \"order_items\": [{\"product_barcode\": \"8934673125456\", \"quantity\": 1, \"unit_price\": \"0.90\"}]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/shopeefood/",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "shopeefood", ""]
+						}
+					}
+				},
+				{
+					"name": "ShopeeFood - Invalid Signature (expect 401)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 401 Unauthorized', function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"order_id\": \"SPF-POSTMAN-002\",\n    \"store_id\": 1,\n    \"created_at\": \"2026-08-29T09:30:00Z\",\n    \"payment_method\": \"ShopeePay\",\n    \"order_items\": [{\"product_barcode\": \"8934673125456\", \"quantity\": 1, \"unit_price\": \"0.90\"}]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/shopeefood/",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "shopeefood", ""]
+						}
+					}
+				},
+				{
+					"name": "BeMart - Valid Signature",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Bemart-Signature", "value": "{{bemartSecret}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id\": \"BM-POSTMAN-001\",\n    \"branch_id\": 1,\n    \"timestamp\": \"2026-08-29T09:30:00Z\",\n    \"payment\": \"BeMartPay\",\n    \"products\": [{\"sku\": \"8934673125456\", \"amount\": 1, \"price\": \"0.90\"}]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/bemart/",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "bemart", ""]
+						}
+					}
+				},
+				{
+					"name": "BeMart - Invalid Signature (expect 401)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 401 Unauthorized', function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id\": \"BM-POSTMAN-002\",\n    \"branch_id\": 1,\n    \"timestamp\": \"2026-08-29T09:30:00Z\",\n    \"payment\": \"BeMartPay\",\n    \"products\": [{\"sku\": \"8934673125456\", \"amount\": 1, \"price\": \"0.90\"}]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/bemart/",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "bemart", ""]
+						}
+					}
+				},
+				{
+					"name": "GrabMart - Duplicate Webhook (idempotency, expect same order_id)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Returns an order_id (compare manually against the first GrabMart request run)', function () {",
+									"    pm.expect(pm.response.json()).to.have.property('order_id');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Grab-Signature", "value": "{{grabmartSecret}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"orderId\": \"GM-POSTMAN-001\",\n    \"storeId\": 1,\n    \"orderTime\": \"2026-08-29T09:30:00Z\",\n    \"paymentMethod\": \"GrabPay\",\n    \"items\": [{\"barcode\": \"8934673125456\", \"qty\": 1, \"price\": \"0.90\"}]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/webhooks/grabmart/",
+							"host": ["{{baseUrl}}"],
+							"path": ["webhooks", "grabmart", ""]
+						},
+						"description": "Same orderId as the first GrabMart request in this collection. Should return the SAME order_id, not create a duplicate order."
+					}
+				}
+			]
+		},
+		{
+			"name": "2. OMNI-5: Aggregated Order List",
+			"item": [
+				{
+					"name": "List all orders (no filter)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Response is a list', function () {",
+									"    pm.expect(pm.response.json()).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/orders/",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", ""]
+						}
+					}
+				},
+				{
+					"name": "List orders filtered by channel=GrabMart",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('All returned orders are GrabMart', function () {",
+									"    var jsonData = pm.response.json();",
+									"    jsonData.forEach(function (order) {",
+									"        pm.expect(order.order_type).to.eql('GrabMart');",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/orders/?channel=GrabMart",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", ""],
+							"query": [{ "key": "channel", "value": "GrabMart" }]
+						}
+					}
+				},
+				{
+					"name": "List orders - No token (expect 401)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 401 Unauthorized', function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/orders/",
+							"host": ["{{baseUrl}}"],
+							"path": ["orders", ""]
+						},
+						"description": "Deliberately no Authorization header - confirms RBAC blocks unauthenticated access."
+					}
+				}
+			]
+		},
+		{
+			"name": "3. FCST-5: Demand Forecast API",
+			"item": [
+				{
+					"name": "Get forecast overview - No token (expect 401)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 401 Unauthorized', function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/procurement/forecast/",
+							"host": ["{{baseUrl}}"],
+							"path": ["procurement", "forecast", ""]
+						}
+					}
+				},
+				{
+					"name": "Get forecast overview - With token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('Response has overview and products', function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('overview');",
+									"    pm.expect(jsonData).to.have.property('products');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/procurement/forecast/",
+							"host": ["{{baseUrl}}"],
+							"path": ["procurement", "forecast", ""]
+						},
+						"description": "Requires the run_demand_forecast management command to have been run first, so DemandForecast rows exist to serve."
+					}
+				},
+				{
+					"name": "Get forecast overview - filter risk=High",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200 OK', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('All returned products are High risk', function () {",
+									"    var jsonData = pm.response.json();",
+									"    jsonData.products.forEach(function (p) {",
+									"        pm.expect(p.stockout_risk).to.eql('High');",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/procurement/forecast/?risk=High",
+							"host": ["{{baseUrl}}"],
+							"path": ["procurement", "forecast", ""],
+							"query": [{ "key": "risk", "value": "High" }]
+						}
+					}
+				}
+			]
+		}
+	]
+}
