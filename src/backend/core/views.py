@@ -25,6 +25,7 @@ from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
     Category, Product, Batch, StoreInventory, Order, OrderDetail, OTPRecord, InventoryAlert,
     StaffReview, StaffDocument, StaffCertificate, Shift,
+    Customer, Discount, BusinessProfile, PaymentMethodSetting, MarketplaceChannelSetting,
 )
 from .serializers import (
     RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
@@ -33,6 +34,8 @@ from .serializers import (
     OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer,
     StaffReviewSerializer, StaffDocumentSerializer, StaffCertificateSerializer,
     RegisterSerializer, ShiftSerializer, PosCheckoutSerializer,
+    CustomerSerializer, DiscountSerializer, BusinessProfileSerializer,
+    PaymentMethodSettingSerializer, MarketplaceChannelSettingSerializer,
 )
 from .permissions import IsCashier, IsChainManager, IsStoreManager
 from .inventory import deduct_stock, InsufficientStockError
@@ -1013,3 +1016,70 @@ class RevenueTrendView(APIView):
             "store": int(store_id) if store_id else None,
             "points": points,
         }, status=status.HTTP_200_OK)
+
+
+class CustomerViewSet(viewsets.ModelViewSet):
+    queryset = Customer.objects.all()
+    serializer_class = CustomerSerializer
+    permission_classes = [IsStoreManager | IsChainManager]
+
+
+class DiscountViewSet(viewsets.ModelViewSet):
+    queryset = Discount.objects.all()
+    serializer_class = DiscountSerializer
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [IsCashier()]
+        return [(IsStoreManager | IsChainManager)()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        product_id = self.request.query_params.get('product')
+        is_active = self.request.query_params.get('is_active')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() in ('true', '1'))
+        return queryset
+
+
+class BusinessProfileView(APIView):
+    """Singleton chain-wide business profile (Settings > Store) -- always reads/writes pk=1."""
+    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [(IsStoreManager | IsChainManager)()]
+        return [IsChainManager()]
+
+    def get(self, request):
+        profile, _ = BusinessProfile.objects.get_or_create(pk=1)
+        return Response(BusinessProfileSerializer(profile).data)
+
+    def put(self, request):
+        profile, _ = BusinessProfile.objects.get_or_create(pk=1)
+        serializer = BusinessProfileSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class PaymentMethodSettingViewSet(viewsets.ModelViewSet):
+    queryset = PaymentMethodSetting.objects.all()
+    serializer_class = PaymentMethodSettingSerializer
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [(IsStoreManager | IsChainManager)()]
+        return [IsChainManager()]
+
+
+class MarketplaceChannelSettingViewSet(viewsets.ModelViewSet):
+    queryset = MarketplaceChannelSetting.objects.all()
+    serializer_class = MarketplaceChannelSettingSerializer
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [(IsStoreManager | IsChainManager)()]
+        return [IsChainManager()]

@@ -8,6 +8,8 @@ from .views import (
     PurchaseOrderViewSet, PurchaseOrderDetailViewSet, ShipmentViewSet, LowStockAlertViewSet, CategoryViewSet,
     ProductViewSet, BatchViewSet, StoreInventoryViewSet,
     OrderViewSet, OrderDetailViewSet, BestWorstSellerView, ShiftViewSet,
+    CustomerViewSet, DiscountViewSet, BusinessProfileView,
+    PaymentMethodSettingViewSet, MarketplaceChannelSettingViewSet,
 )
 
 router = DefaultRouter()
@@ -29,11 +31,16 @@ router.register(r'store-inventories', StoreInventoryViewSet)
 router.register(r'orders', OrderViewSet)
 router.register(r'order-details', OrderDetailViewSet)
 router.register(r'shifts', ShiftViewSet)
+router.register(r'customers', CustomerViewSet)
+router.register(r'discounts', DiscountViewSet)
+router.register(r'payment-method-settings', PaymentMethodSettingViewSet)
+router.register(r'marketplace-channel-settings', MarketplaceChannelSettingViewSet)
 
 urlpatterns = [
     path('health/', HealthCheckView.as_view(), name='health-check'),
     path('suppliers/', SupplierListCreateView.as_view(), name='supplier-list'),
     path('suppliers/<int:pk>/', SupplierDetailView.as_view(), name='supplier-detail'),
+    path('business-profile/', BusinessProfileView.as_view(), name='business-profile'),
     path('', include(router.urls)),
     path('api/statistics/best-worst-sellers/', BestWorstSellerView.as_view(), name='best-worst-sellers'),
 ]

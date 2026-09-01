@@ -10,6 +10,7 @@ from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
     Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert,
     StaffReview, StaffDocument, StaffCertificate, Shift,
+    Customer, Discount, BusinessProfile, PaymentMethodSetting, MarketplaceChannelSetting,
 )
 
 # Performance thresholds for StaffSerializer.get_performance_status — a
@@ -343,3 +344,56 @@ class InventoryAlertSerializer(serializers.ModelSerializer):
             'store', 'store_name', 'current_stock', 'min_threshold',
             'created_at', 'is_resolved'
         ]
+
+
+class CustomerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Customer
+        fields = '__all__'
+
+
+class DiscountSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+
+    class Meta:
+        model = Discount
+        fields = ['discount_id', 'product', 'product_name', 'discount_type', 'value', 'applied_at', 'is_active']
+
+    def validate(self, attrs):
+        product = attrs.get('product') or getattr(self.instance, 'product', None)
+        discount_type = attrs.get('discount_type') or getattr(self.instance, 'discount_type', None)
+        value = attrs.get('value')
+        if value is not None:
+            if value <= 0:
+                raise serializers.ValidationError({"value": "Discount value must be greater than 0."})
+            if discount_type == Discount.TYPE_PERCENTAGE and value > 90:
+                raise serializers.ValidationError({"value": "Percentage discount must be between 1 and 90."})
+            if discount_type == Discount.TYPE_PRICE and product and value >= product.base_price:
+                raise serializers.ValidationError({"value": "New price must be less than the current base price."})
+        return attrs
+
+    def create(self, validated_data):
+        # Only one active discount per product at a time -- applying a new one
+        # supersedes whatever was active before, keeping "the current discount"
+        # on a product unambiguous for POS pricing.
+        if validated_data.get('is_active', True):
+            Discount.objects.filter(product=validated_data['product'], is_active=True).update(is_active=False)
+        return super().create(validated_data)
+
+
+class BusinessProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BusinessProfile
+        fields = '__all__'
+
+
+class PaymentMethodSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentMethodSetting
+        fields = '__all__'
+
+
+class MarketplaceChannelSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MarketplaceChannelSetting
+        fields = '__all__'

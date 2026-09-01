@@ -332,3 +332,116 @@ class Shift(models.Model):
 
     def __str__(self):
         return f"Shift {self.shift_id} - {self.store.store_name} ({self.status})"
+
+# 18. Bảng CUSTOMER
+class Customer(models.Model):
+    TIER_BRONZE = 'Bronze'
+    TIER_SILVER = 'Silver'
+    TIER_GOLD = 'Gold'
+    TIER_VIP = 'VIP'
+    TIER_CHOICES = [
+        (TIER_BRONZE, 'Bronze'),
+        (TIER_SILVER, 'Silver'),
+        (TIER_GOLD, 'Gold'),
+        (TIER_VIP, 'VIP'),
+    ]
+
+    STATUS_ACTIVE = 'Active'
+    STATUS_INACTIVE = 'Inactive'
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_INACTIVE, 'Inactive'),
+    ]
+
+    customer_id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=150)
+    email = models.EmailField(max_length=255, blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    tier = models.CharField(max_length=10, choices=TIER_CHOICES, default=TIER_BRONZE)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    last_contacted_at = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+# 19. Bảng DISCOUNT
+class Discount(models.Model):
+    TYPE_PERCENTAGE = 'percentage'
+    TYPE_PRICE = 'price'
+    TYPE_CHOICES = [
+        (TYPE_PERCENTAGE, 'Percentage'),
+        (TYPE_PRICE, 'Price'),
+    ]
+
+    discount_id = models.AutoField(primary_key=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='discounts')
+    discount_type = models.CharField(max_length=10, choices=TYPE_CHOICES)
+    value = models.DecimalField(max_digits=10, decimal_places=2)
+    applied_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['-applied_at']
+
+    def __str__(self):
+        return f"Discount {self.discount_id} - {self.product.product_name} ({self.discount_type}: {self.value})"
+
+# 20. Bảng BUSINESS_PROFILE (singleton -- always accessed/created at pk=1; chain-wide
+# business info for Settings > Store, deliberately not tied to any one Store row since
+# it represents chain-wide config, not a specific branch's data).
+class BusinessProfile(models.Model):
+    SECTOR_CHOICES = [
+        ('Grocery Store', 'Grocery Store'),
+        ('Convenience Store', 'Convenience Store'),
+        ('Supermarket', 'Supermarket'),
+        ('Minimart', 'Minimart'),
+        ('Pharmacy', 'Pharmacy'),
+        ('Restaurant / F&B', 'Restaurant / F&B'),
+        ('Bakery', 'Bakery'),
+        ('Electronics', 'Electronics'),
+        ('Fashion & Apparel', 'Fashion & Apparel'),
+        ('Other', 'Other'),
+    ]
+
+    store_name = models.CharField(max_length=150, blank=True)
+    business_sector = models.CharField(max_length=50, choices=SECTOR_CHOICES, default='Other')
+    tax_id = models.CharField(max_length=50, blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    email = models.EmailField(max_length=255, blank=True)
+    address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    currency = models.CharField(max_length=10, default='VND')
+    timezone = models.CharField(max_length=50, default='Asia/Ho_Chi_Minh (GMT+7)')
+    opening_time = models.TimeField(null=True, blank=True)
+    closing_time = models.TimeField(null=True, blank=True)
+    logo_url = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.store_name or 'Business Profile'
+
+# 21. Bảng PAYMENT_METHOD_SETTING
+class PaymentMethodSetting(models.Model):
+    method = models.CharField(max_length=50, unique=True)
+    enabled = models.BooleanField(default=True)
+    account_detail = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ['method']
+
+    def __str__(self):
+        return self.method
+
+# 22. Bảng MARKETPLACE_CHANNEL_SETTING
+class MarketplaceChannelSetting(models.Model):
+    channel = models.CharField(max_length=50, unique=True)
+    connected = models.BooleanField(default=False)
+    store_partner_id = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        ordering = ['channel']
+
+    def __str__(self):
+        return self.channel
