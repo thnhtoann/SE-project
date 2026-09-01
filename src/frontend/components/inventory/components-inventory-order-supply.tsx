@@ -11,9 +11,12 @@ import { apiFetch, ApiError } from '@/lib/api-client';
 import { currency } from '@/lib/currency';
 import { getStockStatus, getTotalQuantity, stockStatusBadgeClass, stockStatusKey } from '@/lib/inventory';
 import { fetchProductCatalog } from '@/lib/inventory-assemble';
+import ComponentsInventoryPurchaseOrders from './components-inventory-purchase-orders';
 import { Product, Supplier } from '@/types/admin';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+
+type OrderSupplyTab = 'create' | 'orders';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -30,6 +33,7 @@ const nextItemId = (items: LineItem[]) => items.reduce((max, i) => Math.max(max,
 
 const ComponentsInventoryOrderSupply = () => {
     const { t } = getTranslation();
+    const [tab, setTab] = useState<OrderSupplyTab>('create');
 
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
@@ -169,19 +173,44 @@ const ComponentsInventoryOrderSupply = () => {
             </ul>
 
             <div className="pt-5">
-                {successMessage && (
-                    <div className="mb-5 flex items-center justify-between rounded border border-success bg-success-light px-4 py-3 text-success dark:bg-success dark:bg-opacity-20">
-                        <div>
-                            <span className="font-semibold">{t('order_sent_title')}:</span> {successMessage}
-                        </div>
-                        <button type="button" onClick={() => setSuccessMessage('')} className="shrink-0 hover:opacity-70">
-                            <IconX className="h-4 w-4" />
+                <ul className="mb-5 flex gap-2 border-b border-white-light dark:border-[#1b2e4b]">
+                    <li>
+                        <button
+                            type="button"
+                            className={`-mb-px border-b-2 px-4 py-2 ${tab === 'create' ? '!border-primary text-primary' : 'border-transparent'}`}
+                            onClick={() => setTab('create')}
+                        >
+                            {t('new_supply_order')}
                         </button>
-                    </div>
-                )}
-                {error && <div className="mb-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{error}</div>}
+                    </li>
+                    <li>
+                        <button
+                            type="button"
+                            className={`-mb-px border-b-2 px-4 py-2 ${tab === 'orders' ? '!border-primary text-primary' : 'border-transparent'}`}
+                            onClick={() => setTab('orders')}
+                        >
+                            {t('purchase_orders')}
+                        </button>
+                    </li>
+                </ul>
 
-                <form onSubmit={submitOrder} className="flex flex-col gap-5 xl:flex-row">
+                {tab === 'orders' ? (
+                    <ComponentsInventoryPurchaseOrders />
+                ) : (
+                    <>
+                        {successMessage && (
+                            <div className="mb-5 flex items-center justify-between rounded border border-success bg-success-light px-4 py-3 text-success dark:bg-success dark:bg-opacity-20">
+                                <div>
+                                    <span className="font-semibold">{t('order_sent_title')}:</span> {successMessage}
+                                </div>
+                                <button type="button" onClick={() => setSuccessMessage('')} className="shrink-0 hover:opacity-70">
+                                    <IconX className="h-4 w-4" />
+                                </button>
+                            </div>
+                        )}
+                        {error && <div className="mb-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{error}</div>}
+
+                        <form onSubmit={submitOrder} className="flex flex-col gap-5 xl:flex-row">
                     <div className="panel flex-1">
                         <div className="mb-5 flex items-center gap-2">
                             <IconShoppingCart className="h-5 w-5 shrink-0 text-primary" />
@@ -350,6 +379,8 @@ const ComponentsInventoryOrderSupply = () => {
                         </div>
                     </div>
                 </form>
+                    </>
+                )}
             </div>
         </div>
     );

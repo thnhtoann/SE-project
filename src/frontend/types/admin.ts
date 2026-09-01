@@ -345,6 +345,43 @@ export interface Supplier {
     address: string;
 }
 
+// Mirrors core.serializers.ShipmentItemSerializer (read-only, model=PurchaseOrderDetail).
+export interface ShipmentItem {
+    id: number;
+    product: number;
+    product_name: string;
+    barcode: string;
+    order_qty: number;
+    unit_cost: string;
+}
+
+// Mirrors core.serializers.ShipmentSerializer (GET /api/shipments/, read-only tracking view
+// over the same PurchaseOrder rows Order Supply creates via /api/purchase-orders/).
+export interface ShipmentRecord {
+    po_id: number;
+    supplier: number;
+    supplier_name: string;
+    contact_phone: string;
+    order_date: string;
+    expected_delivery_date: string | null;
+    status: 'Preparing' | 'Delivered' | 'Delayed';
+    is_overdue: boolean;
+    total_amount: string;
+    details: ShipmentItem[];
+}
+
+// Mirrors core.serializers.DiscountSerializer -- the real backend shape. Only one row per
+// product is ever is_active=true at a time (enforced server-side on create).
+export interface DiscountApiRecord {
+    discount_id: number;
+    product: number;
+    product_name: string;
+    discount_type: 'percentage' | 'price';
+    value: string;
+    applied_at: string;
+    is_active: boolean;
+}
+
 export interface StoreInventoryEntry {
     store: string;
     quantity: number;
@@ -395,6 +432,20 @@ export interface Customer {
     lastContactedAt: string;
 }
 
+// Mirrors core.serializers.CustomerSerializer (fields='__all__') -- the real backend shape,
+// a standalone contact list not linked to Order/purchase history. The mock Customer type
+// above stays in use by the Store Dashboard's "Top Customers" tab, which needs
+// purchase-linkage this model deliberately doesn't have.
+export interface CustomerRecord {
+    customer_id: number;
+    name: string;
+    email: string;
+    phone: string;
+    tier: MembershipTier;
+    status: CustomerStatus;
+    last_contacted_at: string | null;
+}
+
 export type PaymentMethod = 'Card' | 'MoMo' | 'Cash' | 'Online Banking';
 
 export interface PosTransaction {
@@ -419,31 +470,39 @@ export type BusinessSector =
     | 'Fashion & Apparel'
     | 'Other';
 
-export interface StoreInformation {
-    storeName: string;
-    logoUrl: string;
-    businessSector: BusinessSector;
-    taxId: string;
+// Mirrors core.serializers.BusinessProfileSerializer -- a singleton row (always pk=1) with
+// chain-wide business info, real backend shape for the Settings > Store page.
+export interface BusinessProfileRecord {
+    id: number;
+    store_name: string;
+    business_sector: BusinessSector;
+    tax_id: string;
     phone: string;
     email: string;
     address: string;
     city: string;
     currency: string;
     timezone: string;
-    openingTime: string;
-    closingTime: string;
+    opening_time: string | null;
+    closing_time: string | null;
+    logo_url: string;
 }
 
-export interface PaymentMethodSetting {
-    method: PaymentMethod;
+// Mirrors core.serializers.PaymentMethodSettingSerializer -- real backend shape, one row per
+// seeded payment method (see core/migrations/0010_seed_settings_data.py).
+export interface PaymentMethodSettingRecord {
+    id: number;
+    method: string;
     enabled: boolean;
-    accountDetail: string;
+    account_detail: string;
 }
 
-// Channel names mirror the values already seeded in mock-dashboards.ts (CHANNEL_REVENUE)
-// so the connected/disconnected list here lines up with what shows in the dashboards.
-export interface MarketplaceChannelSetting {
+// Mirrors core.serializers.MarketplaceChannelSettingSerializer. Lazada is deliberately not
+// among the seeded rows -- it already has a real connection status via LazadaCredential,
+// shown by the separate Lazada-connect widget on the same Settings page.
+export interface MarketplaceChannelSettingRecord {
+    id: number;
     channel: string;
     connected: boolean;
-    storePartnerId: string;
+    store_partner_id: string;
 }

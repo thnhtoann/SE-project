@@ -43,21 +43,31 @@ export default function PosProductSearch({ value, onChange, suggestions, onSelec
 
             {value.trim() && suggestions.length > 0 && (
                 <div className="absolute z-10 mt-1 w-full rounded-md border border-white-light bg-white shadow-lg dark:border-[#1b2e4b] dark:bg-[#0e1726]">
-                    {suggestions.map(({ product, available }) => (
-                        <button
-                            key={product.product_id}
-                            type="button"
-                            disabled={available <= 0}
-                            className="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
-                            onClick={() => onSelectSuggestion({ product, available })}
-                        >
-                            <span>
-                                {product.product_name}
-                                <span className="ml-2 text-xs text-white-dark">{product.barcode}</span>
-                            </span>
-                            <span className="font-semibold">{currency(product.base_price)}</span>
-                        </button>
-                    ))}
+                    {suggestions.map((entry) => {
+                        const { product, available, unitPrice, discountPercent } = entry;
+                        return (
+                            <button
+                                key={product.product_id}
+                                type="button"
+                                disabled={available <= 0}
+                                className="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => onSelectSuggestion(entry)}
+                            >
+                                <span>
+                                    {product.product_name}
+                                    <span className="ml-2 text-xs text-white-dark">{product.barcode}</span>
+                                </span>
+                                {discountPercent ? (
+                                    <span className="flex items-baseline gap-2">
+                                        <span className="text-xs text-white-dark line-through">{currency(product.base_price)}</span>
+                                        <span className="font-semibold text-danger">{currency(unitPrice)}</span>
+                                    </span>
+                                ) : (
+                                    <span className="font-semibold">{currency(unitPrice)}</span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
         </div>

@@ -14,8 +14,9 @@ import {
     stockStatusKey,
 } from '@/lib/inventory';
 import { fetchProductById } from '@/lib/inventory-assemble';
+import { apiFetch, ApiError } from '@/lib/api-client';
 import { currency } from '@/lib/currency';
-import { DiscountRecord, Product } from '@/types/admin';
+import { DiscountApiRecord, Product } from '@/types/admin';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -26,18 +27,28 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
     const { t } = getTranslation();
     const [product, setProduct] = useState<Product | null>(null);
     const [loading, setLoading] = useState(true);
+    const [activeDiscountId, setActiveDiscountId] = useState<number | null>(null);
     const [discountType, setDiscountType] = useState<DiscountType>('percentage');
     const [discountValue, setDiscountValue] = useState('');
     const [discountError, setDiscountError] = useState('');
+    const [discountSubmitting, setDiscountSubmitting] = useState(false);
 
     const discountSectionRef = useRef<HTMLDivElement>(null);
     const searchParams = useSearchParams();
 
-    useEffect(() => {
+    const reload = () => {
         setLoading(true);
-        fetchProductById(productId)
-            .then(setProduct)
+        Promise.all([fetchProductById(productId), apiFetch<DiscountApiRecord[]>(`/discounts/?product=${productId}&is_active=true`).catch(() => [])])
+            .then(([fetchedProduct, activeDiscounts]) => {
+                setProduct(fetchedProduct);
+                setActiveDiscountId(activeDiscounts[0]?.discount_id ?? null);
+            })
             .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        reload();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [productId]);
 
     useEffect(() => {
@@ -46,7 +57,7 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
         }
     }, [product, searchParams]);
 
-    const submitDiscount = (e: React.FormEvent) => {
+    const submitDiscount = async (e: React.FormEvent) => {
         e.preventDefault();
         setDiscountError('');
         if (!product) return;
@@ -65,15 +76,26 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
             return;
         }
 
-        const percent = discountType === 'percentage' ? value : Math.round((1 - value / product.base_price) * 100);
-        const record: DiscountRecord = { id: product.discountHistory.length + 1, type: discountType, value, appliedAt: new Date().toISOString().slice(0, 10) };
-
-        setProduct((prev) => (prev ? { ...prev, discountPercent: percent, discountHistory: [record, ...prev.discountHistory] } : prev));
-        setDiscountValue('');
+        setDiscountSubmitting(true);
+        try {
+            await apiFetch('/discounts/', { method: 'POST', body: { product: productId, discount_type: discountType, value: discountValue } });
+            setDiscountValue('');
+            reload();
+        } catch (err) {
+            if (err instanceof ApiError) {
+                const body = err.body as { detail?: string; value?: string[] } | null;
+                setDiscountError(body?.value?.[0] ?? body?.detail ?? err.message);
+            } else {
+                setDiscountError(t('error_apply_discount_failed'));
+            }
+        } finally {
+            setDiscountSubmitting(false);
+        }
     };
 
     const removeDiscount = () => {
-        setProduct((prev) => (prev ? { ...prev, discountPercent: undefined } : prev));
+        if (!activeDiscountId) return;
+        apiFetch(`/discounts/${activeDiscountId}/`, { method: 'PATCH', body: { is_active: false } }).then(reload);
     };
 
     if (loading) {
@@ -240,7 +262,7 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
                                         onChange={(e) => setDiscountValue(e.target.value)}
                                     />
                                 </div>
-                                <button type="submit" className="btn btn-primary">
+                                <button type="submit" className="btn btn-primary" disabled={discountSubmitting}>
                                     {t('apply_discount')}
                                 </button>
                             </form>

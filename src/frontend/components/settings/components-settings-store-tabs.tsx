@@ -9,30 +9,30 @@ import IconRouter from '@/components/icon/icon-router';
 import IconShoppingBag from '@/components/icon/icon-shopping-bag';
 import IconShoppingCart from '@/components/icon/icon-shopping-cart';
 import ComponentsSettingsLazadaConnect from '@/components/settings/components-settings-lazada-connect';
-import { MARKETPLACE_CHANNEL_SETTINGS, PAYMENT_METHOD_SETTINGS, STORE_INFORMATION } from '@/data/mock-settings';
 import { getTranslation } from '@/i18n';
-import { BusinessSector, MarketplaceChannelSetting, PaymentMethod, PaymentMethodSetting } from '@/types/admin';
-import { ChangeEvent, FC, useState } from 'react';
+import { apiFetch, ApiError } from '@/lib/api-client';
+import { BusinessProfileRecord, BusinessSector, MarketplaceChannelSettingRecord, PaymentMethodSettingRecord } from '@/types/admin';
+import { ChangeEvent, FC, useEffect, useState } from 'react';
 
 type SettingsTab = 'store-information' | 'payment-methods' | 'omnichannel';
 
 type IconComponent = FC<{ className?: string; fill?: boolean }>;
 
-const paymentMethodLabelKey: Record<PaymentMethod, string> = {
+const paymentMethodLabelKey: Record<string, string> = {
     Cash: 'cash',
     Card: 'payment_method_card',
     MoMo: 'payment_method_momo',
     'Online Banking': 'payment_method_online_banking',
 };
 
-const paymentMethodIcon: Record<PaymentMethod, IconComponent> = {
+const paymentMethodIcon: Record<string, IconComponent> = {
     Cash: IconCashBanknotes,
     Card: IconCreditCard,
     MoMo: IconPhoneCall,
     'Online Banking': IconRouter,
 };
 
-const paymentMethodIconClass: Record<PaymentMethod, string> = {
+const paymentMethodIconClass: Record<string, string> = {
     Cash: 'bg-success-light text-success dark:bg-success dark:text-success-light',
     Card: 'bg-info-light text-info dark:bg-info dark:text-info-light',
     MoMo: 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light',
@@ -65,12 +65,55 @@ const businessSectorLabelKey: Record<BusinessSector, string> = {
 
 const businessSectors = Object.keys(businessSectorLabelKey) as BusinessSector[];
 
+const emptyProfile: BusinessProfileRecord = {
+    id: 1,
+    store_name: '',
+    business_sector: 'Other',
+    tax_id: '',
+    phone: '',
+    email: '',
+    address: '',
+    city: '',
+    currency: 'VND',
+    timezone: '',
+    opening_time: '',
+    closing_time: '',
+    logo_url: '',
+};
+
 const ComponentsSettingsStoreTabs = () => {
     const { t } = getTranslation();
     const [tab, setTab] = useState<SettingsTab>('store-information');
-    const [storeInfo, setStoreInfo] = useState(STORE_INFORMATION);
-    const [paymentMethods, setPaymentMethods] = useState<PaymentMethodSetting[]>(PAYMENT_METHOD_SETTINGS);
-    const [channels, setChannels] = useState<MarketplaceChannelSetting[]>(MARKETPLACE_CHANNEL_SETTINGS);
+    const [storeInfo, setStoreInfo] = useState<BusinessProfileRecord>(emptyProfile);
+    const [paymentMethods, setPaymentMethods] = useState<PaymentMethodSettingRecord[]>([]);
+    const [channels, setChannels] = useState<MarketplaceChannelSettingRecord[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saveError, setSaveError] = useState('');
+    const [saved, setSaved] = useState(false);
+
+    useEffect(() => {
+        Promise.all([
+            apiFetch<BusinessProfileRecord>('/business-profile/'),
+            apiFetch<PaymentMethodSettingRecord[]>('/payment-method-settings/'),
+            apiFetch<MarketplaceChannelSettingRecord[]>('/marketplace-channel-settings/'),
+        ])
+            .then(([profile, methods, channelRows]) => {
+                setStoreInfo(profile);
+                setPaymentMethods(methods);
+                setChannels(channelRows);
+            })
+            .catch(() => {})
+            .finally(() => setLoading(false));
+    }, []);
+
+    const reportSaveError = (err: unknown, fallbackKey: string) => {
+        if (err instanceof ApiError) {
+            const body = err.body as { detail?: string } | null;
+            setSaveError(body?.detail ?? err.message);
+        } else {
+            setSaveError(t(fallbackKey));
+        }
+    };
 
     const changeStoreInfo = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { id, value } = e.target;
@@ -81,25 +124,60 @@ const ComponentsSettingsStoreTabs = () => {
         const file = e.target.files?.[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = () => setStoreInfo((prev) => ({ ...prev, logoUrl: reader.result as string }));
+        reader.onload = () => setStoreInfo((prev) => ({ ...prev, logo_url: reader.result as string }));
         reader.readAsDataURL(file);
     };
 
-    const togglePaymentMethod = (method: PaymentMethod) => {
-        setPaymentMethods((prev) => prev.map((pm) => (pm.method === method ? { ...pm, enabled: !pm.enabled } : pm)));
+    const saveStoreInfo = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSaveError('');
+        setSaved(false);
+        try {
+            const updated = await apiFetch<BusinessProfileRecord>('/business-profile/', { method: 'PUT', body: storeInfo });
+            setStoreInfo(updated);
+            setSaved(true);
+        } catch (err) {
+            reportSaveError(err, 'error_save_store_info_failed');
+        }
     };
 
-    const changePaymentAccountDetail = (method: PaymentMethod, value: string) => {
-        setPaymentMethods((prev) => prev.map((pm) => (pm.method === method ? { ...pm, accountDetail: value } : pm)));
+    const togglePaymentMethod = (row: PaymentMethodSettingRecord) => {
+        setSaveError('');
+        apiFetch<PaymentMethodSettingRecord>(`/payment-method-settings/${row.id}/`, { method: 'PATCH', body: { enabled: !row.enabled } })
+            .then((updated) => setPaymentMethods((prev) => prev.map((pm) => (pm.id === updated.id ? updated : pm))))
+            .catch((err) => reportSaveError(err, 'error_save_payment_method_failed'));
     };
 
-    const toggleChannel = (channel: string) => {
-        setChannels((prev) => prev.map((c) => (c.channel === channel ? { ...c, connected: !c.connected } : c)));
+    const changePaymentAccountDetail = (row: PaymentMethodSettingRecord, value: string) => {
+        setPaymentMethods((prev) => prev.map((pm) => (pm.id === row.id ? { ...pm, account_detail: value } : pm)));
     };
 
-    const changeChannelPartnerId = (channel: string, value: string) => {
-        setChannels((prev) => prev.map((c) => (c.channel === channel ? { ...c, storePartnerId: value } : c)));
+    const savePaymentAccountDetail = (row: PaymentMethodSettingRecord) => {
+        apiFetch<PaymentMethodSettingRecord>(`/payment-method-settings/${row.id}/`, { method: 'PATCH', body: { account_detail: row.account_detail } }).catch((err) =>
+            reportSaveError(err, 'error_save_payment_method_failed'),
+        );
     };
+
+    const toggleChannel = (row: MarketplaceChannelSettingRecord) => {
+        setSaveError('');
+        apiFetch<MarketplaceChannelSettingRecord>(`/marketplace-channel-settings/${row.id}/`, { method: 'PATCH', body: { connected: !row.connected } })
+            .then((updated) => setChannels((prev) => prev.map((c) => (c.id === updated.id ? updated : c))))
+            .catch((err) => reportSaveError(err, 'error_save_channel_failed'));
+    };
+
+    const changeChannelPartnerId = (row: MarketplaceChannelSettingRecord, value: string) => {
+        setChannels((prev) => prev.map((c) => (c.id === row.id ? { ...c, store_partner_id: value } : c)));
+    };
+
+    const saveChannelPartnerId = (row: MarketplaceChannelSettingRecord) => {
+        apiFetch<MarketplaceChannelSettingRecord>(`/marketplace-channel-settings/${row.id}/`, { method: 'PATCH', body: { store_partner_id: row.store_partner_id } }).catch((err) =>
+            reportSaveError(err, 'error_save_channel_failed'),
+        );
+    };
+
+    if (loading) {
+        return <div className="panel py-10 text-center text-white-dark">{t('loading')}</div>;
+    }
 
     return (
         <div>
@@ -146,11 +224,15 @@ const ComponentsSettingsStoreTabs = () => {
                     </li>
                 </ul>
 
+                {saveError && <div className="mb-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{saveError}</div>}
+
                 {tab === 'store-information' && (
-                    <form className="panel" onSubmit={(e) => e.preventDefault()}>
+                    <form className="panel" onSubmit={saveStoreInfo}>
                         <h5 className="mb-5 text-lg font-semibold">{t('general_information')}</h5>
                         <div className="mb-5 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-                            <img src={storeInfo.logoUrl} alt="store logo preview" className="h-20 w-20 rounded-md border border-[#ebedf2] object-contain p-2 dark:border-[#1b2e4b]" />
+                            {storeInfo.logo_url && (
+                                <img src={storeInfo.logo_url} alt="store logo preview" className="h-20 w-20 rounded-md border border-[#ebedf2] object-contain p-2 dark:border-[#1b2e4b]" />
+                            )}
                             <div>
                                 <label htmlFor="logo">{t('store_logo')}</label>
                                 <input id="logo" type="file" accept="image/*" className="form-input p-1 text-xs" onChange={changeLogo} />
@@ -158,12 +240,12 @@ const ComponentsSettingsStoreTabs = () => {
                         </div>
                         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                             <div>
-                                <label htmlFor="storeName">{t('store_name')}</label>
-                                <input id="storeName" type="text" className="form-input" value={storeInfo.storeName} onChange={changeStoreInfo} />
+                                <label htmlFor="store_name">{t('store_name')}</label>
+                                <input id="store_name" type="text" className="form-input" value={storeInfo.store_name} onChange={changeStoreInfo} />
                             </div>
                             <div>
-                                <label htmlFor="businessSector">{t('business_sector')}</label>
-                                <select id="businessSector" className="form-select" value={storeInfo.businessSector} onChange={changeStoreInfo}>
+                                <label htmlFor="business_sector">{t('business_sector')}</label>
+                                <select id="business_sector" className="form-select" value={storeInfo.business_sector} onChange={changeStoreInfo}>
                                     {businessSectors.map((sector) => (
                                         <option key={sector} value={sector}>
                                             {t(businessSectorLabelKey[sector])}
@@ -172,8 +254,8 @@ const ComponentsSettingsStoreTabs = () => {
                                 </select>
                             </div>
                             <div>
-                                <label htmlFor="taxId">{t('tax_id')}</label>
-                                <input id="taxId" type="text" className="form-input" value={storeInfo.taxId} onChange={changeStoreInfo} />
+                                <label htmlFor="tax_id">{t('tax_id')}</label>
+                                <input id="tax_id" type="text" className="form-input" value={storeInfo.tax_id} onChange={changeStoreInfo} />
                             </div>
                             <div>
                                 <label htmlFor="phone">{t('phone')}</label>
@@ -200,18 +282,19 @@ const ComponentsSettingsStoreTabs = () => {
                                 <input id="timezone" type="text" className="form-input" value={storeInfo.timezone} onChange={changeStoreInfo} />
                             </div>
                             <div>
-                                <label htmlFor="openingTime">{t('opening_time')}</label>
-                                <input id="openingTime" type="time" className="form-input" value={storeInfo.openingTime} onChange={changeStoreInfo} />
+                                <label htmlFor="opening_time">{t('opening_time')}</label>
+                                <input id="opening_time" type="time" className="form-input" value={storeInfo.opening_time?.slice(0, 5) ?? ''} onChange={changeStoreInfo} />
                             </div>
                             <div>
-                                <label htmlFor="closingTime">{t('closing_time')}</label>
-                                <input id="closingTime" type="time" className="form-input" value={storeInfo.closingTime} onChange={changeStoreInfo} />
+                                <label htmlFor="closing_time">{t('closing_time')}</label>
+                                <input id="closing_time" type="time" className="form-input" value={storeInfo.closing_time?.slice(0, 5) ?? ''} onChange={changeStoreInfo} />
                             </div>
                         </div>
-                        <div className="mt-5">
+                        <div className="mt-5 flex items-center gap-4">
                             <button type="submit" className="btn btn-primary">
                                 {t('save')}
                             </button>
+                            {saved && <span className="text-success">{t('saved')}</span>}
                         </div>
                     </form>
                 )}
@@ -224,38 +307,39 @@ const ComponentsSettingsStoreTabs = () => {
                         </div>
                         <div>
                             {paymentMethods.map((pm, index) => {
-                                const Icon = paymentMethodIcon[pm.method];
+                                const Icon = paymentMethodIcon[pm.method] ?? IconCashBanknotes;
                                 return (
-                                <div key={pm.method} className={`flex flex-col gap-4 py-4 sm:flex-row sm:items-center ${index !== paymentMethods.length - 1 ? 'border-b border-[#ebedf2] dark:border-[#1b2e4b]' : ''}`}>
-                                    <div className="flex items-center gap-3 sm:w-56">
-                                        <div className={`grid h-11 w-11 shrink-0 place-content-center rounded-full ${paymentMethodIconClass[pm.method]}`}>
-                                            <Icon className="h-5 w-5" fill />
+                                    <div
+                                        key={pm.id}
+                                        className={`flex flex-col gap-4 py-4 sm:flex-row sm:items-center ${index !== paymentMethods.length - 1 ? 'border-b border-[#ebedf2] dark:border-[#1b2e4b]' : ''}`}
+                                    >
+                                        <div className="flex items-center gap-3 sm:w-56">
+                                            <div className={`grid h-11 w-11 shrink-0 place-content-center rounded-full ${paymentMethodIconClass[pm.method] ?? ''}`}>
+                                                <Icon className="h-5 w-5" fill />
+                                            </div>
+                                            <div>
+                                                <h6 className="text-[15px] font-bold text-[#515365] dark:text-white-dark">{t(paymentMethodLabelKey[pm.method] ?? '') || pm.method}</h6>
+                                                <span
+                                                    className={`badge mt-1 ${pm.enabled ? 'bg-success-light text-success dark:bg-success dark:text-success-light' : 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]'}`}
+                                                >
+                                                    {pm.enabled ? t('enabled') : t('disabled')}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h6 className="text-[15px] font-bold text-[#515365] dark:text-white-dark">{t(paymentMethodLabelKey[pm.method])}</h6>
-                                            <span className={`badge mt-1 ${pm.enabled ? 'bg-success-light text-success dark:bg-success dark:text-success-light' : 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]'}`}>
-                                                {pm.enabled ? t('enabled') : t('disabled')}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder={t('enter_merchant_account_id')}
-                                        className="form-input flex-1"
-                                        value={pm.accountDetail}
-                                        disabled={!pm.enabled}
-                                        onChange={(e) => changePaymentAccountDetail(pm.method, e.target.value)}
-                                    />
-                                    <label className="relative h-6 w-12 shrink-0">
                                         <input
-                                            type="checkbox"
-                                            className="peer absolute z-10 h-full w-full cursor-pointer opacity-0"
-                                            checked={pm.enabled}
-                                            onChange={() => togglePaymentMethod(pm.method)}
+                                            type="text"
+                                            placeholder={t('enter_merchant_account_id')}
+                                            className="form-input flex-1"
+                                            value={pm.account_detail}
+                                            disabled={!pm.enabled}
+                                            onChange={(e) => changePaymentAccountDetail(pm, e.target.value)}
+                                            onBlur={() => savePaymentAccountDetail(pm)}
                                         />
-                                        <span className="block h-full rounded-full bg-[#ebedf2] before:absolute before:bottom-1 before:left-1 before:h-4 before:w-4 before:rounded-full before:bg-white before:transition-all before:duration-300 peer-checked:bg-primary peer-checked:before:left-7 dark:bg-dark dark:before:bg-white-dark dark:peer-checked:before:bg-white"></span>
-                                    </label>
-                                </div>
+                                        <label className="relative h-6 w-12 shrink-0">
+                                            <input type="checkbox" className="peer absolute z-10 h-full w-full cursor-pointer opacity-0" checked={pm.enabled} onChange={() => togglePaymentMethod(pm)} />
+                                            <span className="block h-full rounded-full bg-[#ebedf2] before:absolute before:bottom-1 before:left-1 before:h-4 before:w-4 before:rounded-full before:bg-white before:transition-all before:duration-300 peer-checked:bg-primary peer-checked:before:left-7 dark:bg-dark dark:before:bg-white-dark dark:peer-checked:before:bg-white"></span>
+                                        </label>
+                                    </div>
                                 );
                             })}
                         </div>
@@ -273,36 +357,37 @@ const ComponentsSettingsStoreTabs = () => {
                             {channels.map((c) => {
                                 const Icon = channelIcon(c.channel);
                                 return (
-                                <div key={c.channel} className="rounded-md border border-[#ebedf2] p-4 dark:border-[#1b2e4b]">
-                                    <div className="mb-3 flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`grid h-11 w-11 shrink-0 place-content-center rounded-full ${channelIconClass(c.channel)}`}>
-                                                <Icon className="h-5 w-5" fill />
+                                    <div key={c.id} className="rounded-md border border-[#ebedf2] p-4 dark:border-[#1b2e4b]">
+                                        <div className="mb-3 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`grid h-11 w-11 shrink-0 place-content-center rounded-full ${channelIconClass(c.channel)}`}>
+                                                    <Icon className="h-5 w-5" fill />
+                                                </div>
+                                                <h6 className="text-[15px] font-bold text-[#515365] dark:text-white-dark">{c.channel}</h6>
                                             </div>
-                                            <h6 className="text-[15px] font-bold text-[#515365] dark:text-white-dark">{c.channel}</h6>
+                                            <span
+                                                className={`badge ${c.connected ? 'bg-success-light text-success dark:bg-success dark:text-success-light' : 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]'}`}
+                                            >
+                                                {c.connected ? t('connected') : t('not_connected')}
+                                            </span>
                                         </div>
-                                        <span
-                                            className={`badge ${c.connected ? 'bg-success-light text-success dark:bg-success dark:text-success-light' : 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]'}`}
-                                        >
-                                            {c.connected ? t('connected') : t('not_connected')}
-                                        </span>
+                                        <div className="mb-3">
+                                            <label htmlFor={`channel-${c.id}`}>{t('store_partner_id')}</label>
+                                            <input
+                                                id={`channel-${c.id}`}
+                                                type="text"
+                                                placeholder={t('enter_store_partner_id')}
+                                                className="form-input"
+                                                value={c.store_partner_id}
+                                                disabled={!c.connected}
+                                                onChange={(e) => changeChannelPartnerId(c, e.target.value)}
+                                                onBlur={() => saveChannelPartnerId(c)}
+                                            />
+                                        </div>
+                                        <button type="button" onClick={() => toggleChannel(c)} className={`btn ${c.connected ? 'btn-outline-danger' : 'btn-primary'} w-full`}>
+                                            {c.connected ? t('disconnect') : t('connect')}
+                                        </button>
                                     </div>
-                                    <div className="mb-3">
-                                        <label htmlFor={`channel-${c.channel}`}>{t('store_partner_id')}</label>
-                                        <input
-                                            id={`channel-${c.channel}`}
-                                            type="text"
-                                            placeholder={t('enter_store_partner_id')}
-                                            className="form-input"
-                                            value={c.storePartnerId}
-                                            disabled={!c.connected}
-                                            onChange={(e) => changeChannelPartnerId(c.channel, e.target.value)}
-                                        />
-                                    </div>
-                                    <button type="button" onClick={() => toggleChannel(c.channel)} className={`btn ${c.connected ? 'btn-outline-danger' : 'btn-primary'} w-full`}>
-                                        {c.connected ? t('disconnect') : t('connect')}
-                                    </button>
-                                </div>
                                 );
                             })}
                         </div>

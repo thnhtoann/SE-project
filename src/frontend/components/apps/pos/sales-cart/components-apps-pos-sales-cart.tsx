@@ -59,7 +59,7 @@ const ComponentsAppsPosSalesCart = () => {
             showPosToast(`${t('out_of_stock')}: ${entry.product.product_name}`, 'error');
             return;
         }
-        dispatch(addLineItem({ product: entry.product, unitPrice: Number(entry.product.base_price) }));
+        dispatch(addLineItem({ product: entry.product, unitPrice: entry.unitPrice }));
         setSearchValue('');
     };
 
