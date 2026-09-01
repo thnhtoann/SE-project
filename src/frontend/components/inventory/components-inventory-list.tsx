@@ -9,6 +9,7 @@ import IconSearch from '@/components/icon/icon-search';
 import IconTrashLines from '@/components/icon/icon-trash-lines';
 import IconTrendingUp from '@/components/icon/icon-trending-up';
 import { apiFetch } from '@/lib/api-client';
+import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import {
     discountedPrice,
@@ -24,8 +25,6 @@ import {
 import { BatchApiRecord, CategoryRecord, ExpiryStatus, Product, ProductApiRecord, StoreInventoryApiRecord, StoreRecord } from '@/types/admin';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
 
 type ExpiryFilter = 'all' | ExpiryStatus;
 

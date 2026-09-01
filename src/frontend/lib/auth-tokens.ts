@@ -1,7 +1,15 @@
 import Cookies from 'universal-cookie';
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, ROLE_COOKIE, USERNAME_COOKIE, DEVICE_TOKEN_COOKIE } from '@/lib/session-cookie-names';
+import {
+    ACCESS_TOKEN_COOKIE,
+    REFRESH_TOKEN_COOKIE,
+    ROLE_COOKIE,
+    USERNAME_COOKIE,
+    DEVICE_TOKEN_COOKIE,
+    STAFF_ID_COOKIE,
+    STORE_ID_COOKIE,
+} from '@/lib/session-cookie-names';
 
-export { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, ROLE_COOKIE, USERNAME_COOKIE, DEVICE_TOKEN_COOKIE };
+export { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, ROLE_COOKIE, USERNAME_COOKIE, DEVICE_TOKEN_COOKIE, STAFF_ID_COOKIE, STORE_ID_COOKIE };
 
 // Not httpOnly: the Django backend is header-based JWT only and never sets
 // these cookies itself, so the frontend must write them after login. They
@@ -28,18 +36,26 @@ export interface SessionTokens {
     refresh: string;
     role: string;
     username: string;
+    staffId: number;
+    storeId: number | null;
     // Whether this login requested a 30-day refresh token (vs. the default
     // 1-day one) — controls how long the refresh/role/username cookies stick
     // around so they don't get dropped before the token itself expires.
     rememberMe?: boolean;
 }
 
-export const setTokens = ({ access, refresh, role, username, rememberMe }: SessionTokens): void => {
+export const setTokens = ({ access, refresh, role, username, staffId, storeId, rememberMe }: SessionTokens): void => {
     const refreshMaxAge = rememberMe ? REMEMBER_ME_REFRESH_MAX_AGE_SECONDS : REFRESH_TOKEN_MAX_AGE_SECONDS;
     cookies.set(ACCESS_TOKEN_COOKIE, access, cookieOptions(ACCESS_TOKEN_MAX_AGE_SECONDS));
     cookies.set(REFRESH_TOKEN_COOKIE, refresh, cookieOptions(refreshMaxAge));
     cookies.set(ROLE_COOKIE, role, cookieOptions(refreshMaxAge));
     cookies.set(USERNAME_COOKIE, username, cookieOptions(refreshMaxAge));
+    cookies.set(STAFF_ID_COOKIE, String(staffId), cookieOptions(refreshMaxAge));
+    if (storeId !== null) {
+        cookies.set(STORE_ID_COOKIE, String(storeId), cookieOptions(refreshMaxAge));
+    } else {
+        cookies.remove(STORE_ID_COOKIE, { path: '/' });
+    }
 };
 
 export const setAccessToken = (access: string): void => {
@@ -50,12 +66,22 @@ export const getAccessToken = (): string | undefined => cookies.get(ACCESS_TOKEN
 export const getRefreshToken = (): string | undefined => cookies.get(REFRESH_TOKEN_COOKIE);
 export const getSessionRole = (): string | undefined => cookies.get(ROLE_COOKIE);
 export const getSessionUsername = (): string | undefined => cookies.get(USERNAME_COOKIE);
+export const getSessionStaffId = (): number | undefined => {
+    const value = cookies.get(STAFF_ID_COOKIE);
+    return value !== undefined ? Number(value) : undefined;
+};
+export const getSessionStoreId = (): number | null | undefined => {
+    const value = cookies.get(STORE_ID_COOKIE);
+    return value !== undefined ? Number(value) : undefined;
+};
 
 export const clearTokens = (): void => {
     cookies.remove(ACCESS_TOKEN_COOKIE, { path: '/' });
     cookies.remove(REFRESH_TOKEN_COOKIE, { path: '/' });
     cookies.remove(ROLE_COOKIE, { path: '/' });
     cookies.remove(USERNAME_COOKIE, { path: '/' });
+    cookies.remove(STAFF_ID_COOKIE, { path: '/' });
+    cookies.remove(STORE_ID_COOKIE, { path: '/' });
 };
 
 // Device-trust token: kept separate from the session cookies above and never

@@ -1,6 +1,17 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { apiFetch, ApiError } from '@/lib/api-client';
-import { clearTokens, getAccessToken, getDeviceToken, getRefreshToken, getSessionRole, getSessionUsername, setDeviceToken, setTokens } from '@/lib/auth-tokens';
+import {
+    clearTokens,
+    getAccessToken,
+    getDeviceToken,
+    getRefreshToken,
+    getSessionRole,
+    getSessionUsername,
+    getSessionStaffId,
+    getSessionStoreId,
+    setDeviceToken,
+    setTokens,
+} from '@/lib/auth-tokens';
 import { getTranslation } from '@/i18n';
 
 // `step` tracks which form to show; `status` tracks loading/error independently
@@ -14,6 +25,8 @@ interface SessionState {
     status: SessionStatus;
     username: string | null;
     role: string | null;
+    staffId: number | null;
+    storeId: number | null;
     isAuthenticated: boolean;
     error: string | null;
     errorCode: string | null;
@@ -24,6 +37,8 @@ const initialState: SessionState = {
     status: 'idle',
     username: null,
     role: null,
+    staffId: null,
+    storeId: null,
     isAuthenticated: false,
     error: null,
     errorCode: null,
@@ -65,16 +80,33 @@ export const requestOtp = createAsyncThunk(
         try {
             const data = await apiFetch<
                 | { message: string; username: string }
-                | { trusted_device: true; username: string; access: string; refresh: string; role: string; device_token: string | null }
+                | {
+                      trusted_device: true;
+                      username: string;
+                      access: string;
+                      refresh: string;
+                      role: string;
+                      staff_id: number;
+                      store_id: number | null;
+                      device_token: string | null;
+                  }
             >('/login/request-otp/', {
                 method: 'POST',
                 body: { ...payload, device_token: getDeviceToken() },
             });
 
             if ('trusted_device' in data && data.trusted_device) {
-                setTokens({ access: data.access, refresh: data.refresh, role: data.role, username: data.username, rememberMe: payload.remember_me });
+                setTokens({
+                    access: data.access,
+                    refresh: data.refresh,
+                    role: data.role,
+                    username: data.username,
+                    staffId: data.staff_id,
+                    storeId: data.store_id,
+                    rememberMe: payload.remember_me,
+                });
                 if (data.device_token) setDeviceToken(data.device_token);
-                return { trustedDevice: true as const, username: data.username, role: data.role };
+                return { trustedDevice: true as const, username: data.username, role: data.role, staffId: data.staff_id, storeId: data.store_id };
             }
 
             return { trustedDevice: false as const, username: data.username };
@@ -88,13 +120,28 @@ export const verifyOtp = createAsyncThunk(
     'session/verifyOtp',
     async (payload: { username: string; otp: string; remember_me?: boolean }, { rejectWithValue }) => {
         try {
-            const data = await apiFetch<{ access: string; refresh: string; role: string; device_token: string | null }>('/login/verify-otp/', {
+            const data = await apiFetch<{
+                access: string;
+                refresh: string;
+                role: string;
+                staff_id: number;
+                store_id: number | null;
+                device_token: string | null;
+            }>('/login/verify-otp/', {
                 method: 'POST',
                 body: payload,
             });
-            setTokens({ access: data.access, refresh: data.refresh, role: data.role, username: payload.username, rememberMe: payload.remember_me });
+            setTokens({
+                access: data.access,
+                refresh: data.refresh,
+                role: data.role,
+                username: payload.username,
+                staffId: data.staff_id,
+                storeId: data.store_id,
+                rememberMe: payload.remember_me,
+            });
             if (data.device_token) setDeviceToken(data.device_token);
-            return { username: payload.username, role: data.role };
+            return { username: payload.username, role: data.role, staffId: data.staff_id, storeId: data.store_id };
         } catch (err) {
             return rejectWithValue(parseError(err));
         }
@@ -129,12 +176,16 @@ const sessionSlice = createSlice({
                 state.isAuthenticated = true;
                 state.username = username;
                 state.role = role;
+                state.staffId = getSessionStaffId() ?? null;
+                state.storeId = getSessionStoreId() ?? null;
             } else {
                 state.step = 'credentials';
                 state.status = 'idle';
                 state.isAuthenticated = false;
                 state.username = null;
                 state.role = null;
+                state.staffId = null;
+                state.storeId = null;
             }
         },
         resetToCredentials(state) {
@@ -160,6 +211,8 @@ const sessionSlice = createSlice({
                     state.status = 'authenticated';
                     state.isAuthenticated = true;
                     state.role = action.payload.role;
+                    state.staffId = action.payload.staffId;
+                    state.storeId = action.payload.storeId;
                 } else {
                     state.step = 'otp';
                     state.status = 'idle';
@@ -181,6 +234,8 @@ const sessionSlice = createSlice({
                 state.isAuthenticated = true;
                 state.username = action.payload.username;
                 state.role = action.payload.role;
+                state.staffId = action.payload.staffId;
+                state.storeId = action.payload.storeId;
                 state.error = null;
                 state.errorCode = null;
             })
@@ -196,6 +251,8 @@ const sessionSlice = createSlice({
                 state.isAuthenticated = false;
                 state.username = null;
                 state.role = null;
+                state.staffId = null;
+                state.storeId = null;
                 state.error = null;
                 state.errorCode = null;
             });

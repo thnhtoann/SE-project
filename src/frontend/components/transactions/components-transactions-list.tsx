@@ -3,11 +3,10 @@ import AdminTable, { AdminTableColumn } from '@/components/datatable/admin-table
 import IconSearch from '@/components/icon/icon-search';
 import { statusBadgeClass } from '@/components/dashboard/components-dashboard-analytics';
 import { apiFetch } from '@/lib/api-client';
+import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import { OrderRecord, StaffRecord, StoreRecord } from '@/types/admin';
 import { useEffect, useMemo, useState } from 'react';
-
-const currency = (value: string) => `₫${Math.round(Number(value)).toLocaleString('en-US')}`;
 
 const defaultBadgeClass = 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]';
 

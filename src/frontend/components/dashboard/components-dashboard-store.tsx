@@ -1,14 +1,11 @@
 'use client';
 import IconMapPin from '@/components/icon/icon-map-pin';
-import IconPlus from '@/components/icon/icon-plus';
 import IconStar from '@/components/icon/icon-star';
 import IconUsersGroup from '@/components/icon/icon-users-group';
 import IconTrendingUp from '@/components/icon/icon-trending-up';
-import IconX from '@/components/icon/icon-x';
 import PeriodSelector from '@/components/dashboard/period-selector';
 import TierBadge from '@/components/customers/tier-badge';
 import {
-    BRANCHES,
     BRANCH_SHARE,
     CHANNEL_REVENUE,
     DEVICE_VISITS,
@@ -20,92 +17,96 @@ import {
     TOP_CUSTOMERS,
     VIP_CUSTOMER,
 } from '@/data/mock-dashboards';
-import { MOCK_STAFF } from '@/data/mock-staff';
 import { IRootState } from '@/store';
-import { Branch, ReportPeriod } from '@/types/admin';
+import { apiFetch } from '@/lib/api-client';
+import { currency } from '@/lib/currency';
+import { ReportPeriod, RevenueTrendResponse, StaffRecord, StoreRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
-import { Dialog, DialogPanel, Transition, TransitionChild } from '@headlessui/react';
 import Link from 'next/link';
-import { ChangeEvent, Fragment, FormEvent, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
 
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
-
 type StoreTab = 'performance' | 'customers';
-
-interface BranchFormState {
-    name: string;
-    address: string;
-    revenue: string;
-}
-
-const emptyBranchForm: BranchFormState = { name: '', address: '', revenue: '' };
 
 const ComponentsDashboardStore = () => {
     const { t } = getTranslation();
     const isDark = useSelector((state: IRootState) => state.themeConfig.theme === 'dark' || state.themeConfig.isDarkMode);
+    const sessionStoreId = useSelector((state: IRootState) => state.session.storeId);
     const [isMounted, setIsMounted] = useState(false);
     const [period, setPeriod] = useState<ReportPeriod>('month');
-    const [branches, setBranches] = useState<Branch[]>(BRANCHES);
-    const [branchId, setBranchId] = useState(BRANCHES[0].id);
+    const [branches, setBranches] = useState<StoreRecord[]>([]);
+    const [branchId, setBranchId] = useState<number | null>(null);
     const [tab, setTab] = useState<StoreTab>('performance');
-    const [branchModalOpen, setBranchModalOpen] = useState(false);
-    const [branchForm, setBranchForm] = useState<BranchFormState>(emptyBranchForm);
-    const [branchFormError, setBranchFormError] = useState('');
+    const [trend, setTrend] = useState<RevenueTrendResponse | null>(null);
+    const [topStaff, setTopStaff] = useState<StaffRecord[]>([]);
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
 
-    const factor = PERIOD_MULTIPLIER[period];
-    const branch = branches.find((b) => b.id === branchId) ?? branches[0];
-    const share = BRANCH_SHARE[branch.id] ?? 1;
-    // Customer figures are seeded chain-wide, so scale them by both axes to keep
-    // every panel on this page reflecting the same branch + period selection.
-    const customerFactor = factor * share;
-    const branchRevenue = branch.revenue * factor;
+    // core.StoreViewSet is Chain-Manager-only even for GET, so a Store Manager viewing this
+    // page (RevenueTrendView itself allows Store Manager) falls back to just their own store
+    // rather than an empty branch list.
+    useEffect(() => {
+        apiFetch<StoreRecord[]>('/stores/')
+            .then((stores) => {
+                setBranches(stores);
+                if (stores.length > 0) setBranchId(stores[0].store_id);
+            })
+            .catch(() => {
+                if (sessionStoreId) {
+                    const fallback: StoreRecord = { store_id: sessionStoreId, store_name: `Store #${sessionStoreId}`, location: '' };
+                    setBranches([fallback]);
+                    setBranchId(sessionStoreId);
+                }
+            });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionStoreId]);
 
-    const topStaff = [...MOCK_STAFF]
-        .filter((s) => s.branch === branch.name)
-        .sort((a, b) => b.monthlySales - a.monthlySales)
-        .slice(0, 5);
+    useEffect(() => {
+        if (!branchId) return;
+        apiFetch<RevenueTrendResponse>(`/reports/revenue-trend/?period=${period}&store=${branchId}`)
+            .then(setTrend)
+            .catch(() => setTrend(null));
+        // Chain-Manager-only endpoint (see note above) -- degrades to an empty list for a
+        // Store Manager rather than breaking the page.
+        apiFetch<StaffRecord[]>('/staff/')
+            .then((staff) =>
+                setTopStaff(
+                    staff
+                        .filter((s) => s.store === branchId)
+                        .sort((a, b) => b.monthly_sales - a.monthly_sales)
+                        .slice(0, 5)
+                )
+            )
+            .catch(() => setTopStaff([]));
+    }, [branchId, period]);
+
+    const factor = PERIOD_MULTIPLIER[period];
+    const branch = branches.find((b) => b.store_id === branchId) ?? null;
+    const share = branch ? (BRANCH_SHARE[branch.store_id] ?? 1) : 1;
+    // Customer figures are seeded chain-wide mock data (no Customer model in the backend),
+    // scaled by both axes to keep every mock panel below reflecting the same selection.
+    const customerFactor = factor * share;
+    const branchRevenue = (trend?.points ?? []).reduce((sum, p) => sum + Number(p.total), 0);
 
     const branchMembers = MEMBERSHIP_TIERS.map((t) => Math.round(t.count * share));
 
-    const hasData = branchRevenue > 0;
+    const hasData = !!branch && trend !== null;
 
-    const openAddBranchModal = () => {
-        setBranchForm(emptyBranchForm);
-        setBranchFormError('');
-        setBranchModalOpen(true);
-    };
-
-    const closeBranchModal = () => setBranchModalOpen(false);
-
-    const changeBranchForm = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { id, value } = e.target;
-        setBranchForm((prev) => ({ ...prev, [id]: value }));
-    };
-
-    const submitBranchForm = (e: FormEvent) => {
-        e.preventDefault();
-        setBranchFormError('');
-
-        if (!branchForm.name.trim()) {
-            setBranchFormError(t('error_branch_name_required'));
-            return;
-        }
-        if (!branchForm.address.trim()) {
-            setBranchFormError(t('error_address_required'));
-            return;
-        }
-
-        const nextId = branches.reduce((max, b) => Math.max(max, b.id), 0) + 1;
-        const revenue = Number(branchForm.revenue) || 0;
-        setBranches((prev) => [...prev, { id: nextId, name: branchForm.name, address: branchForm.address, revenue }]);
-        setBranchId(nextId);
-        setBranchModalOpen(false);
+    const revenueTrendChart: any = {
+        series: [{ name: t('revenue'), data: (trend?.points ?? []).map((p) => Math.round(Number(p.total))) }],
+        options: {
+            chart: { type: 'area', height: 300, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
+            dataLabels: { enabled: false },
+            stroke: { curve: 'smooth', width: 2 },
+            colors: ['#00ab55'],
+            xaxis: { categories: (trend?.points ?? []).map((p) => p.label) },
+            grid: { borderColor: isDark ? '#191e3a' : '#e0e6ed' },
+            tooltip: { theme: isDark ? 'dark' : 'light' },
+            fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05 } },
+        },
     };
 
     const revenueSourcesChart: any = {
@@ -232,17 +233,13 @@ const ComponentsDashboardStore = () => {
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap items-center gap-3">
                         <h2 className="text-xl">{t('branch_performance')}</h2>
-                        <select className="form-select w-auto" value={branchId} onChange={(e) => setBranchId(Number(e.target.value))}>
+                        <select className="form-select w-auto" value={branchId ?? ''} onChange={(e) => setBranchId(Number(e.target.value))}>
                             {branches.map((b) => (
-                                <option key={b.id} value={b.id}>
-                                    {b.name}
+                                <option key={b.store_id} value={b.store_id}>
+                                    {b.store_name}
                                 </option>
                             ))}
                         </select>
-                        <button type="button" className="btn btn-outline-primary gap-2" onClick={openAddBranchModal}>
-                            <IconPlus className="h-4 w-4" />
-                            {t('add_branch')}
-                        </button>
                     </div>
                     <PeriodSelector value={period} onChange={setPeriod} />
                 </div>
@@ -270,7 +267,7 @@ const ComponentsDashboardStore = () => {
                     </li>
                 </ul>
 
-                {!hasData ? (
+                {!hasData || !branch ? (
                     <div className="panel flex items-center justify-center py-16 text-white-dark">{t('no_data_branch_period')}</div>
                 ) : tab === 'performance' ? (
                     <>
@@ -286,8 +283,8 @@ const ComponentsDashboardStore = () => {
                                     </div>
                                     <div>
                                         <h6 className="text-[13px] text-white-dark">{t('branch_location')}</h6>
-                                        <p className="font-semibold dark:text-white-light">{branch.name}</p>
-                                        <p className="text-sm text-white-dark">{branch.address}</p>
+                                        <p className="font-semibold dark:text-white-light">{branch.store_name}</p>
+                                        <p className="text-sm text-white-dark">{branch.location}</p>
                                     </div>
                                 </div>
                             </div>
@@ -295,23 +292,29 @@ const ComponentsDashboardStore = () => {
 
                         <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <div className="panel">
+                                <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_analytics')}</h5>
+                                {isMounted && <ReactApexChart series={revenueTrendChart.series} options={revenueTrendChart.options} type="area" height={300} />}
+                            </div>
+                            <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_funnel')}</h5>
                                 {isMounted && <ReactApexChart series={funnelChart.series} options={funnelChart.options} type="bar" height={360} />}
                             </div>
+                        </div>
+
+                        <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('revenue_sources')}</h5>
                                 {isMounted && <ReactApexChart series={revenueSourcesChart.series} options={revenueSourcesChart.options} type="donut" height={400} />}
                             </div>
-                        </div>
-
-                        <div className="panel mb-5">
-                            <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('peak_hours')}</h5>
-                            {isMounted && <ReactApexChart series={peakHoursChart.series} options={peakHoursChart.options} type="line" height={360} />}
+                            <div className="panel">
+                                <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('peak_hours')}</h5>
+                                {isMounted && <ReactApexChart series={peakHoursChart.series} options={peakHoursChart.options} type="line" height={360} />}
+                            </div>
                         </div>
 
                         <div className="panel">
                             <h5 className="mb-5 text-lg font-semibold dark:text-white-light">
-                                {t('top_staff_at')} {branch.name}
+                                {t('top_staff_at')} {branch.store_name}
                             </h5>
                             {topStaff.length === 0 ? (
                                 <p className="text-white-dark">{t('no_staff_assigned_branch')}</p>
@@ -328,12 +331,12 @@ const ComponentsDashboardStore = () => {
                                         </thead>
                                         <tbody>
                                             {topStaff.map((staff) => (
-                                                <tr key={staff.id}>
-                                                    <td className="font-semibold">{staff.name}</td>
-                                                    <td>{staff.role}</td>
-                                                    <td>{currency(staff.monthlySales * factor)}</td>
+                                                <tr key={staff.staff_id}>
+                                                    <td className="font-semibold">{staff.full_name}</td>
+                                                    <td>{staff.role_name}</td>
+                                                    <td>{currency(staff.monthly_sales)}</td>
                                                     <td className="text-center">
-                                                        <Link href={`/staff/${staff.id}`} className="text-primary hover:underline">
+                                                        <Link href={`/staff/${staff.staff_id}`} className="text-primary hover:underline">
                                                             {t('view')}
                                                         </Link>
                                                     </td>
@@ -419,92 +422,6 @@ const ComponentsDashboardStore = () => {
                     </>
                 )}
             </div>
-
-            <Transition appear show={branchModalOpen} as={Fragment}>
-                <Dialog as="div" open={branchModalOpen} onClose={closeBranchModal}>
-                    <TransitionChild
-                        as={Fragment}
-                        enter="ease-out duration-300"
-                        enterFrom="opacity-0"
-                        enterTo="opacity-100"
-                        leave="ease-in duration-200"
-                        leaveFrom="opacity-100"
-                        leaveTo="opacity-0"
-                    >
-                        <div className="fixed inset-0 bg-[black]/60" />
-                    </TransitionChild>
-                    <div className="fixed inset-0 z-[999] overflow-y-auto">
-                        <div className="flex min-h-screen items-start justify-center px-4 py-8">
-                            <TransitionChild
-                                as={Fragment}
-                                enter="ease-out duration-300"
-                                enterFrom="opacity-0 scale-95"
-                                enterTo="opacity-100 scale-100"
-                                leave="ease-in duration-200"
-                                leaveFrom="opacity-100 scale-100"
-                                leaveTo="opacity-0 scale-95"
-                            >
-                                <DialogPanel as="div" className="panel my-8 w-full max-w-lg overflow-hidden rounded-lg border-0 p-0 text-black dark:text-white-dark">
-                                    <div className="flex items-center justify-between bg-[#fbfbfb] px-5 py-3 dark:bg-[#121c2c]">
-                                        <div className="text-lg font-bold">{t('add_branch')}</div>
-                                        <button type="button" className="text-white-dark hover:text-dark" onClick={closeBranchModal}>
-                                            <IconX />
-                                        </button>
-                                    </div>
-
-                                    <form onSubmit={submitBranchForm} className="p-5">
-                                        {branchFormError && <div className="mb-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{branchFormError}</div>}
-
-                                        <div className="mb-4">
-                                            <label htmlFor="name">{t('branch_name')}</label>
-                                            <input
-                                                id="name"
-                                                type="text"
-                                                placeholder={t('enter_branch_name')}
-                                                className="form-input"
-                                                value={branchForm.name}
-                                                onChange={changeBranchForm}
-                                            />
-                                        </div>
-                                        <div className="mb-4">
-                                            <label htmlFor="address">{t('address')}</label>
-                                            <textarea
-                                                id="address"
-                                                rows={2}
-                                                placeholder={t('enter_address')}
-                                                className="form-textarea resize-none"
-                                                value={branchForm.address}
-                                                onChange={changeBranchForm}
-                                            ></textarea>
-                                        </div>
-                                        <div className="mb-4">
-                                            <label htmlFor="revenue">{t('revenue')}</label>
-                                            <input
-                                                id="revenue"
-                                                type="number"
-                                                min={0}
-                                                placeholder="0"
-                                                className="form-input"
-                                                value={branchForm.revenue}
-                                                onChange={changeBranchForm}
-                                            />
-                                        </div>
-
-                                        <div className="flex items-center justify-end gap-4">
-                                            <button type="button" className="btn btn-outline-danger" onClick={closeBranchModal}>
-                                                {t('cancel')}
-                                            </button>
-                                            <button type="submit" className="btn btn-primary">
-                                                {t('add_branch')}
-                                            </button>
-                                        </div>
-                                    </form>
-                                </DialogPanel>
-                            </TransitionChild>
-                        </div>
-                    </div>
-                </Dialog>
-            </Transition>
         </div>
     );
 };

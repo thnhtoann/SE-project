@@ -2,11 +2,12 @@ import IconTrash from '@/components/icon/icon-trash';
 import IconPlus from '@/components/icon/icon-plus';
 import IconMinus from '@/components/icon/icon-minus';
 import { CartLineItem } from '@/components/apps/pos/pos-data';
+import { currency } from '@/lib/currency';
 
 interface Props {
     item: CartLineItem;
-    onQuantityChange: (productId: string, quantity: number) => void;
-    onRemove: (productId: string) => void;
+    onQuantityChange: (productId: number, quantity: number) => void;
+    onRemove: (productId: number) => void;
 }
 
 export default function PosCartLineItemRow({ item, onQuantityChange, onRemove }: Props) {
@@ -27,8 +28,8 @@ export default function PosCartLineItemRow({ item, onQuantityChange, onRemove }:
                     </button>
                 </div>
             </td>
-            <td className="w-1 whitespace-nowrap">${item.unitPrice.toFixed(2)}</td>
-            <td className="w-1 whitespace-nowrap font-semibold">${item.subTotal.toFixed(2)}</td>
+            <td className="w-1 whitespace-nowrap">{currency(item.unitPrice)}</td>
+            <td className="w-1 whitespace-nowrap font-semibold">{currency(item.subTotal)}</td>
             <td className="w-1">
                 <button type="button" onClick={() => onRemove(item.productId)}>
                     <IconTrash className="h-4 w-4 text-danger" />

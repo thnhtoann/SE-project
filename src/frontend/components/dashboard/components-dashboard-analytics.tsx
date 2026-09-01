@@ -4,16 +4,16 @@ import IconDollarSignCircle from '@/components/icon/icon-dollar-sign-circle';
 import IconUsers from '@/components/icon/icon-users';
 import IconUsersGroup from '@/components/icon/icon-users-group';
 import PeriodSelector from '@/components/dashboard/period-selector';
-import { COMPANY_KPIS, PERIOD_MULTIPLIER, RECENT_TRANSACTIONS, REVENUE_TREND, TOP_PRODUCTS } from '@/data/mock-dashboards';
+import { COMPANY_KPIS } from '@/data/mock-dashboards';
 import { IRootState } from '@/store';
-import { ReportPeriod } from '@/types/admin';
+import { apiFetch } from '@/lib/api-client';
+import { OrderRecord, ReportPeriod, RevenueTrendResponse } from '@/types/admin';
+import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
-
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
 
 export const statusBadgeClass: Record<string, string> = {
     Completed: 'bg-success-light text-success dark:bg-success dark:text-success-light',
@@ -27,29 +27,55 @@ const statusKey: Record<string, string> = {
     Canceled: 'transaction_status_canceled',
 };
 
+const defaultBadgeClass = 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]';
+
+interface TopProductRow {
+    product__product_id: number;
+    product__product_name: string;
+    total_sold: number;
+}
+
 const ComponentsDashboardAnalytics = () => {
     const { t } = getTranslation();
     const isDark = useSelector((state: IRootState) => state.themeConfig.theme === 'dark' || state.themeConfig.isDarkMode);
     const [isMounted, setIsMounted] = useState(false);
     const [period, setPeriod] = useState<ReportPeriod>('month');
 
+    const [trend, setTrend] = useState<RevenueTrendResponse | null>(null);
+    const [topProducts, setTopProducts] = useState<TopProductRow[]>([]);
+    const [recentOrders, setRecentOrders] = useState<OrderRecord[]>([]);
+
     useEffect(() => {
         setIsMounted(true);
     }, []);
 
-    const factor = PERIOD_MULTIPLIER[period];
-    const revenueSeries = REVENUE_TREND.map((p) => Math.round(p.value * factor));
-    const topProducts = TOP_PRODUCTS.map((p) => ({ ...p, unitsSold: Math.round(p.unitsSold * factor), revenue: p.revenue * factor }));
-    const hasData = revenueSeries.length > 0;
+    useEffect(() => {
+        apiFetch<RevenueTrendResponse>(`/reports/revenue-trend/?period=${period}`)
+            .then(setTrend)
+            .catch(() => setTrend(null));
+    }, [period]);
+
+    useEffect(() => {
+        apiFetch<{ best_sellers: TopProductRow[] }>('/reports/sales-performance/?limit=5')
+            .then((res) => setTopProducts(res.best_sellers))
+            .catch(() => setTopProducts([]));
+        apiFetch<OrderRecord[]>('/orders/')
+            .then((orders) => setRecentOrders([...orders].sort((a, b) => (a.order_date < b.order_date ? 1 : -1)).slice(0, 5)))
+            .catch(() => setRecentOrders([]));
+    }, []);
+
+    const points = trend?.points ?? [];
+    const hasData = points.length > 0;
+    const totalRevenue = points.reduce((sum, p) => sum + Number(p.total), 0);
 
     const revenueChart: any = {
-        series: [{ name: t('revenue_millions'), data: revenueSeries }],
+        series: [{ name: t('revenue_millions'), data: points.map((p) => Math.round(Number(p.total))) }],
         options: {
             chart: { height: 325, type: 'area', fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
             dataLabels: { enabled: false },
             stroke: { curve: 'smooth', width: 2 },
             colors: ['#4361ee'],
-            xaxis: { categories: REVENUE_TREND.map((p) => p.label), axisBorder: { show: false }, axisTicks: { show: false } },
+            xaxis: { categories: points.map((p) => p.label), axisBorder: { show: false }, axisTicks: { show: false } },
             yaxis: { opposite: false, labels: { offsetX: 0 } },
             grid: { borderColor: isDark ? '#191e3a' : '#e0e6ed' },
             legend: { show: false },
@@ -83,6 +109,8 @@ const ComponentsDashboardAnalytics = () => {
                 ) : (
                     <>
                         <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                            {/* total_skus/total_staff/total_customers have no supporting backend
+                                aggregate endpoint -- kept as illustrative mock figures. */}
                             <div className="panel">
                                 <div className="flex items-center">
                                     <div className="grid h-11 w-11 shrink-0 place-content-center rounded-md bg-primary-light text-primary dark:bg-primary dark:text-primary-light">
@@ -123,7 +151,7 @@ const ComponentsDashboardAnalytics = () => {
                                     </div>
                                     <div className="ltr:ml-3 rtl:mr-3">
                                         <h6 className="text-[13px] text-white-dark">{t('revenue')}</h6>
-                                        <p className="text-xl font-semibold dark:text-white-light">{currency(COMPANY_KPIS.totalRevenue * factor)}</p>
+                                        <p className="text-xl font-semibold dark:text-white-light">{currency(totalRevenue)}</p>
                                     </div>
                                 </div>
                             </div>
@@ -138,15 +166,13 @@ const ComponentsDashboardAnalytics = () => {
                             <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('top_selling_products')}</h5>
                                 <div className="space-y-4">
+                                    {topProducts.length === 0 && <p className="text-sm text-white-dark">{t('no_sales_data_period')}</p>}
                                     {topProducts.map((product) => (
-                                        <div key={product.id} className="flex items-center justify-between border-b border-[#ebedf2] pb-3 last:border-0 dark:border-[#1b2e4b]">
-                                            <div>
-                                                <h6 className="font-semibold text-[#515365] dark:text-white-dark">{product.name}</h6>
-                                                <p className="text-xs text-white-dark">
-                                                    {product.unitsSold.toLocaleString('en-US')} {t('units')}
-                                                </p>
-                                            </div>
-                                            <span className="font-semibold text-success">{currency(product.revenue)}</span>
+                                        <div key={product.product__product_id} className="flex items-center justify-between border-b border-[#ebedf2] pb-3 last:border-0 dark:border-[#1b2e4b]">
+                                            <h6 className="font-semibold text-[#515365] dark:text-white-dark">{product.product__product_name}</h6>
+                                            <span className="font-semibold text-success">
+                                                {product.total_sold.toLocaleString('en-US')} {t('units')}
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
@@ -159,7 +185,7 @@ const ComponentsDashboardAnalytics = () => {
                                 <table className="table-hover">
                                     <thead>
                                         <tr>
-                                            <th>{t('customer')}</th>
+                                            <th>{t('order_code')}</th>
                                             <th>{t('channel')}</th>
                                             <th>{t('amount')}</th>
                                             <th>{t('status')}</th>
@@ -167,15 +193,15 @@ const ComponentsDashboardAnalytics = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {RECENT_TRANSACTIONS.map((tx) => (
-                                            <tr key={tx.id}>
-                                                <td className="font-semibold">{tx.customer}</td>
-                                                <td>{tx.channel}</td>
-                                                <td>{currency(tx.amount)}</td>
+                                        {recentOrders.map((o) => (
+                                            <tr key={o.order_id}>
+                                                <td className="font-semibold">#{o.order_id}</td>
+                                                <td>{o.order_type}</td>
+                                                <td>{currency(o.total_amount)}</td>
                                                 <td>
-                                                    <span className={`badge ${statusBadgeClass[tx.status]}`}>{t(statusKey[tx.status])}</span>
+                                                    <span className={`badge ${statusBadgeClass[o.status] ?? defaultBadgeClass}`}>{statusKey[o.status] ? t(statusKey[o.status]) : o.status}</span>
                                                 </td>
-                                                <td className="whitespace-nowrap text-white-dark">{new Date(tx.date).toLocaleString()}</td>
+                                                <td className="whitespace-nowrap text-white-dark">{new Date(o.order_date).toLocaleString()}</td>
                                             </tr>
                                         ))}
                                     </tbody>

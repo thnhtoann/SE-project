@@ -1,37 +1,72 @@
 'use client';
 
 import { Dialog, DialogPanel, Transition, TransitionChild } from '@headlessui/react';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { IRootState } from '@/store';
-import { Order } from '@/components/apps/pos/pos-data';
+import { apiFetch } from '@/lib/api-client';
+import { currency } from '@/lib/currency';
+import { OrderDetailApiRecord, OrderRecord } from '@/types/admin';
 import PosStatusBadge, { orderStatusBadge, paymentMethodBadge } from '@/components/apps/pos/pos-status-badge';
 import IconSearch from '@/components/icon/icon-search';
 import IconX from '@/components/icon/icon-x';
 import IconEye from '@/components/icon/icon-eye';
 import { getTranslation } from '@/i18n';
 
+// core.StaffViewSet is Chain-Manager-only, so this Cashier-facing screen can't resolve
+// other staff ids to names -- only the logged-in cashier's own name is ever known here.
+function cashierLabel(orderStaffId: number | null, sessionStaffId: number | null, sessionUsername: string | null): string {
+    if (!orderStaffId) return '—';
+    if (orderStaffId === sessionStaffId) return sessionUsername ?? `#${orderStaffId}`;
+    return `#${orderStaffId}`;
+}
+
 const ComponentsAppsPosOrderLookup = () => {
     const { t } = getTranslation();
-    const orders = useSelector((state: IRootState) => state.pos.orders);
+    const storeId = useSelector((state: IRootState) => state.session.storeId);
+    const staffId = useSelector((state: IRootState) => state.session.staffId);
+    const username = useSelector((state: IRootState) => state.session.username);
 
+    const [orders, setOrders] = useState<OrderRecord[]>([]);
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
-    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(null);
+    const [selectedDetails, setSelectedDetails] = useState<OrderDetailApiRecord[]>([]);
+    const [detailsLoading, setDetailsLoading] = useState(false);
+
+    useEffect(() => {
+        if (!storeId) return;
+        setLoading(true);
+        apiFetch<OrderRecord[]>(`/orders/?store=${storeId}&channel=POS`)
+            .then(setOrders)
+            .catch(() => setOrders([]))
+            .finally(() => setLoading(false));
+    }, [storeId]);
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         return [...orders]
             .filter((o) => {
-                if (q && !o.orderId.toLowerCase().includes(q) && !(o.customerName ?? '').toLowerCase().includes(q)) return false;
-                const orderDay = o.orderDate.slice(0, 10);
+                if (q && !String(o.order_id).includes(q) && !cashierLabel(o.staff, staffId, username).toLowerCase().includes(q)) return false;
+                const orderDay = o.order_date.slice(0, 10);
                 if (dateFrom && orderDay < dateFrom) return false;
                 if (dateTo && orderDay > dateTo) return false;
                 return true;
             })
-            .sort((a, b) => (a.orderDate < b.orderDate ? 1 : -1));
-    }, [orders, search, dateFrom, dateTo]);
+            .sort((a, b) => (a.order_date < b.order_date ? 1 : -1));
+    }, [orders, search, dateFrom, dateTo, staffId, username]);
+
+    const openOrder = (order: OrderRecord) => {
+        setSelectedOrder(order);
+        setSelectedDetails([]);
+        setDetailsLoading(true);
+        apiFetch<OrderDetailApiRecord[]>(`/order-details/?order=${order.order_id}`)
+            .then(setSelectedDetails)
+            .catch(() => setSelectedDetails([]))
+            .finally(() => setDetailsLoading(false));
+    };
 
     return (
         <div className="panel">
@@ -45,7 +80,7 @@ const ComponentsAppsPosOrderLookup = () => {
                             id="order-search"
                             type="text"
                             className="form-input ltr:pl-9 rtl:pr-9"
-                            placeholder={`${t('customer')} / ${t('order_code')}`}
+                            placeholder={`${t('cashier')} / ${t('order_code')}`}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                         />
@@ -70,7 +105,7 @@ const ComponentsAppsPosOrderLookup = () => {
                         <tr>
                             <th>{t('order_code')}</th>
                             <th>Date</th>
-                            <th>{t('customer')}</th>
+                            <th>{t('cashier')}</th>
                             <th>{t('payment_method')}</th>
                             <th>Total</th>
                             <th>Status</th>
@@ -78,30 +113,37 @@ const ComponentsAppsPosOrderLookup = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        {filtered.length === 0 && (
+                        {!loading && filtered.length === 0 && (
                             <tr>
                                 <td colSpan={7} className="!text-center font-semibold text-white-dark">
                                     No orders found
                                 </td>
                             </tr>
                         )}
+                        {loading && (
+                            <tr>
+                                <td colSpan={7} className="!text-center font-semibold text-white-dark">
+                                    {t('loading')}
+                                </td>
+                            </tr>
+                        )}
                         {filtered.map((o) => {
                             const status = orderStatusBadge(o.status);
-                            const pm = paymentMethodBadge(o.paymentMethod);
+                            const pm = paymentMethodBadge(o.payment_method);
                             return (
-                                <tr key={o.orderId}>
-                                    <td className="font-semibold">{o.orderId}</td>
-                                    <td>{new Date(o.orderDate).toLocaleString()}</td>
-                                    <td>{o.customerName ?? '—'}</td>
+                                <tr key={o.order_id}>
+                                    <td className="font-semibold">#{o.order_id}</td>
+                                    <td>{new Date(o.order_date).toLocaleString()}</td>
+                                    <td>{cashierLabel(o.staff, staffId, username)}</td>
                                     <td>
                                         <PosStatusBadge label={pm.label} color={pm.color} />
                                     </td>
-                                    <td>${o.totalAmount.toFixed(2)}</td>
+                                    <td>{currency(o.total_amount)}</td>
                                     <td>
                                         <PosStatusBadge label={status.label} color={status.color} />
                                     </td>
                                     <td>
-                                        <button type="button" onClick={() => setSelectedOrder(o)}>
+                                        <button type="button" onClick={() => openOrder(o)}>
                                             <IconEye className="h-4 w-4" />
                                         </button>
                                     </td>
@@ -139,26 +181,26 @@ const ComponentsAppsPosOrderLookup = () => {
                                         <div className="p-5">
                                             <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
                                                 <div className="text-white-dark">{t('order_code')}</div>
-                                                <div className="text-right font-semibold">{selectedOrder.orderId}</div>
+                                                <div className="text-right font-semibold">#{selectedOrder.order_id}</div>
                                                 <div className="text-white-dark">Date</div>
-                                                <div className="text-right">{new Date(selectedOrder.orderDate).toLocaleString()}</div>
-                                                <div className="text-white-dark">{t('customer')}</div>
-                                                <div className="text-right">{selectedOrder.customerName ?? '—'}</div>
+                                                <div className="text-right">{new Date(selectedOrder.order_date).toLocaleString()}</div>
                                                 <div className="text-white-dark">{t('employee')}</div>
-                                                <div className="text-right">{selectedOrder.cashierName}</div>
+                                                <div className="text-right">{cashierLabel(selectedOrder.staff, staffId, username)}</div>
                                             </div>
                                             <div className="border-t border-white-light pt-3 dark:border-[#1b2e4b]">
-                                                {selectedOrder.lineItems.map((li) => (
-                                                    <div key={li.productId} className="flex justify-between py-1 text-sm">
-                                                        <span>
-                                                            {li.name} x{li.quantity}
-                                                        </span>
-                                                        <span>${li.subTotal.toFixed(2)}</span>
-                                                    </div>
-                                                ))}
+                                                {detailsLoading && <div className="py-2 text-center text-sm text-white-dark">{t('loading')}</div>}
+                                                {!detailsLoading &&
+                                                    selectedDetails.map((li) => (
+                                                        <div key={li.id} className="flex justify-between py-1 text-sm">
+                                                            <span>
+                                                                #{li.product} x{li.quantity}
+                                                            </span>
+                                                            <span>{currency(li.sub_total)}</span>
+                                                        </div>
+                                                    ))}
                                                 <div className="mt-2 flex justify-between border-t border-white-light pt-2 font-semibold dark:border-[#1b2e4b]">
                                                     <span>{t('total')}</span>
-                                                    <span>${selectedOrder.totalAmount.toFixed(2)}</span>
+                                                    <span>{currency(selectedOrder.total_amount)}</span>
                                                 </div>
                                             </div>
                                         </div>

@@ -151,6 +151,7 @@
     "simulate_bank_confirmation": "Giả lập xác nhận ngân hàng",
     "simulate_rejection": "Giả lập từ chối",
     "payment_rejected": "Thanh toán bị từ chối",
+    "no_active_shift": "Chưa có ca làm việc nào — hãy mở ca trước khi thanh toán",
     "print_receipt": "In biên lai",
     "receipt_printed": "Đã in biên lai",
     "cash_drawer_opened": "Đã mở ngăn kéo tiền",

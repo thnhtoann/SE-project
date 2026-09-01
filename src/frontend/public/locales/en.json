@@ -151,6 +151,7 @@
     "simulate_bank_confirmation": "Simulate Bank Confirmation",
     "simulate_rejection": "Simulate Rejection",
     "payment_rejected": "Payment rejected",
+    "no_active_shift": "No active shift — open one before checking out",
     "print_receipt": "Print Receipt",
     "receipt_printed": "Receipt printed",
     "cash_drawer_opened": "Cash drawer opened",

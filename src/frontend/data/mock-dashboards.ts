@@ -1,4 +1,4 @@
-import { Branch, ChannelRevenue, DeviceVisit, FunnelStage, MembershipTierCount, PeakHourPoint, RecentTransaction, ReportPeriod, RevenuePoint, TopCustomer, TopProduct } from '@/types/admin';
+import { Branch, ChannelRevenue, DeviceVisit, FunnelStage, MembershipTierCount, PeakHourPoint, ReportPeriod, TopCustomer } from '@/types/admin';
 
 // Stand-in for the real reporting API: scales the seeded month-based figures so
 // switching the period visibly changes every dashboard.
@@ -23,32 +23,6 @@ export const COMPANY_KPIS = {
     totalCustomers: 3860,
     totalRevenue: 412500000,
 };
-
-export const REVENUE_TREND: RevenuePoint[] = [
-    { label: 'Mon', value: 38 },
-    { label: 'Tue', value: 45 },
-    { label: 'Wed', value: 40 },
-    { label: 'Thu', value: 52 },
-    { label: 'Fri', value: 61 },
-    { label: 'Sat', value: 68 },
-    { label: 'Sun', value: 55 },
-];
-
-export const TOP_PRODUCTS: TopProduct[] = [
-    { id: 1, name: 'Instant Noodles (Cup)', unitsSold: 812, revenue: 12180000 },
-    { id: 2, name: 'Bottled Water 500ml', unitsSold: 705, revenue: 7050000 },
-    { id: 3, name: 'Fresh Milk 1L', unitsSold: 540, revenue: 16200000 },
-    { id: 4, name: 'Canned Coffee', unitsSold: 498, revenue: 8964000 },
-    { id: 5, name: 'Sandwich Bread', unitsSold: 322, revenue: 6440000 },
-];
-
-export const RECENT_TRANSACTIONS: RecentTransaction[] = [
-    { id: 1, customer: 'Tran Thi B', amount: 185000, channel: 'POS', status: 'Completed', date: '2026-08-08T09:12:00' },
-    { id: 2, customer: 'Le Van C', amount: 92000, channel: 'GrabMart', status: 'Completed', date: '2026-08-08T08:57:00' },
-    { id: 3, customer: 'Pham Thi D', amount: 340000, channel: 'ShopeeFood', status: 'Pending', date: '2026-08-08T08:40:00' },
-    { id: 4, customer: 'Nguyen Van A', amount: 58000, channel: 'POS', status: 'Completed', date: '2026-08-08T08:21:00' },
-    { id: 5, customer: 'Hoang Thi E', amount: 210000, channel: 'BeMart', status: 'Canceled', date: '2026-08-08T07:58:00' },
-];
 
 export const BRANCHES: Branch[] = [
     { id: 1, name: 'District 1 Branch', address: '9 Nguyen Hue Boulevard, District 1, Ho Chi Minh City', revenue: 182500000 },

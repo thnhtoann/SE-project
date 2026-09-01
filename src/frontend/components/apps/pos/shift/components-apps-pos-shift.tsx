@@ -1,30 +1,70 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '@/store';
-import { closeShift, openShift } from '@/store/posSlice';
+import { closeShiftThunk, fetchActiveShift, openShiftThunk } from '@/store/posSlice';
+import { apiFetch } from '@/lib/api-client';
+import { ShiftRecord } from '@/types/admin';
 import PosShiftList from './pos-shift-list';
 import PosEodReport from './pos-eod-report';
+import { showPosToast } from '@/components/apps/pos/pos-toast';
 import { getTranslation } from '@/i18n';
 
 const ComponentsAppsPosShift = () => {
     const { t } = getTranslation();
-    const dispatch = useDispatch();
-    const shifts = useSelector((state: IRootState) => state.pos.shifts);
+    const dispatch = useDispatch<any>();
+    const storeId = useSelector((state: IRootState) => state.session.storeId);
     const activeShift = useSelector((state: IRootState) => state.pos.activeShift);
-    const orders = useSelector((state: IRootState) => state.pos.orders);
+    const shiftError = useSelector((state: IRootState) => state.pos.shiftError);
+    const [shifts, setShifts] = useState<ShiftRecord[]>([]);
+    const [shiftsLoading, setShiftsLoading] = useState(true);
     const [panel, setPanel] = useState<'shift' | 'eod'>('shift');
 
-    const handleOpenShift = () => {
-        const input = window.prompt('Opening cash float ($)', '100');
-        if (input === null) return;
-        const value = Number(input);
-        if (!Number.isNaN(value) && value >= 0) dispatch(openShift({ openingCashFloat: value }));
+    const reloadShifts = () => {
+        if (!storeId) return;
+        setShiftsLoading(true);
+        apiFetch<ShiftRecord[]>(`/shifts/?store=${storeId}`)
+            .then(setShifts)
+            .catch(() => setShifts([]))
+            .finally(() => setShiftsLoading(false));
     };
 
-    const handleCloseShift = () => {
-        if (window.confirm('Close the current shift?')) dispatch(closeShift());
+    useEffect(() => {
+        if (storeId) {
+            dispatch(fetchActiveShift(storeId));
+            reloadShifts();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dispatch, storeId]);
+
+    const handleOpenShift = async () => {
+        if (!storeId) return;
+        const input = window.prompt('Opening cash float (₫)', '0');
+        if (input === null) return;
+        const value = Number(input);
+        if (Number.isNaN(value) || value < 0) return;
+        try {
+            await dispatch(openShiftThunk({ storeId, openingCash: value })).unwrap();
+            reloadShifts();
+        } catch (err) {
+            showPosToast(typeof err === 'string' ? err : 'Failed to open shift', 'error');
+        }
+    };
+
+    const handleCloseShift = async () => {
+        if (!activeShift) return;
+        if (!window.confirm('Close the current shift?')) return;
+        const input = window.prompt('Closing cash count (₫)', '0');
+        if (input === null) return;
+        const value = Number(input);
+        if (Number.isNaN(value) || value < 0) return;
+        try {
+            await dispatch(closeShiftThunk({ shiftId: activeShift.shift_id, closingCash: value })).unwrap();
+            reloadShifts();
+        } catch (err) {
+            showPosToast(typeof err === 'string' ? err : 'Failed to close shift', 'error');
+        }
     };
 
     return (
@@ -46,10 +86,12 @@ const ComponentsAppsPosShift = () => {
                 </button>
             </div>
 
+            {shiftError && <div className="mb-4 rounded-md border border-danger bg-danger-light px-4 py-3 text-sm text-danger">{shiftError}</div>}
+
             {panel === 'shift' ? (
-                <PosShiftList shifts={shifts} activeShift={activeShift} orders={orders} onOpenShift={handleOpenShift} onCloseShift={handleCloseShift} />
+                <PosShiftList shifts={shifts} activeShift={activeShift} loading={shiftsLoading} onOpenShift={handleOpenShift} onCloseShift={handleCloseShift} />
             ) : (
-                <PosEodReport orders={orders} />
+                <PosEodReport activeShift={activeShift} />
             )}
         </div>
     );

@@ -52,12 +52,63 @@ export interface OrderRecord {
     order_id: number;
     store: number;
     staff: number | null;
+    shift: number | null;
     order_date: string;
     order_type: string;
     payment_method: string;
     total_amount: string;
     status: string;
     external_order_id: string | null;
+}
+
+// Mirrors core.OrderDetail (fields='__all__').
+export interface OrderDetailApiRecord {
+    id: number;
+    order: number;
+    product: number;
+    quantity: number;
+    unit_price: string;
+    sub_total: string;
+}
+
+// Mirrors core.serializers.ShiftSerializer.
+export interface ShiftRecord {
+    shift_id: number;
+    store: number;
+    store_name: string;
+    staff: number;
+    staff_name: string;
+    register: string;
+    opened_at: string;
+    closed_at: string | null;
+    opening_cash: string;
+    closing_cash: string | null;
+    status: 'Open' | 'Closed';
+}
+
+// Response shape of GET /shifts/<id>/eod-report/ (core/views.py ShiftViewSet.eod_report).
+export interface ShiftEodReport {
+    shift_id: number;
+    order_count: number;
+    cash_total: string;
+    bank_qr_total: string;
+    grand_total: string;
+    hourly_breakdown: { hour: string; total: string; order_count: number }[];
+    top_products: { product__product_id: number; product__product_name: string; total_qty: number }[];
+}
+
+// Response shape of GET /reports/revenue-trend/ (core/views.py RevenueTrendView).
+export interface RevenueTrendPoint {
+    label: string;
+    date: string;
+    total: string;
+    order_count: number;
+}
+
+export interface RevenueTrendResponse {
+    period: 'week' | 'month' | 'quarter';
+    store: number | null;
+    points: RevenueTrendPoint[];
 }
 
 // Mirrors core.Category (fields='__all__').
