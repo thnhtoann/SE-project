@@ -4,6 +4,7 @@ import secrets
 from datetime import timedelta
 from django.core.cache import cache
 from django.db import models, transaction, IntegrityError
+from django.utils import timezone
 from django.core.mail import send_mail
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password
@@ -12,17 +13,18 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Sum
+from django.db.models.functions import TruncHour, TruncDate, TruncMonth
 # Import Models & Serializers
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
     Category, Product, Batch, StoreInventory, Order, OrderDetail, OTPRecord, InventoryAlert,
-    StaffReview, StaffDocument, StaffCertificate,
+    StaffReview, StaffDocument, StaffCertificate, Shift,
 )
 from .serializers import (
     RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
@@ -30,9 +32,11 @@ from .serializers import (
     ProductSerializer, BatchSerializer, StoreInventorySerializer,
     OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer,
     StaffReviewSerializer, StaffDocumentSerializer, StaffCertificateSerializer,
-    RegisterSerializer,
+    RegisterSerializer, ShiftSerializer, PosCheckoutSerializer,
 )
 from .permissions import IsCashier, IsChainManager, IsStoreManager
+from .inventory import deduct_stock, InsufficientStockError
+from .checkout import create_pos_order
 
 
 class HealthCheckView(APIView):
@@ -336,25 +340,48 @@ class LowStockAlertViewSet(viewsets.ModelViewSet):
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [IsCashier()]
+        return [(IsStoreManager | IsChainManager)()]
 
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
-    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [IsCashier()]
+        return [(IsStoreManager | IsChainManager)()]
 
 
 class BatchViewSet(viewsets.ModelViewSet):
     queryset = Batch.objects.all()
     serializer_class = BatchSerializer
-    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_queryset(self):
+        queryset = Batch.objects.all()
+        product_id = self.request.query_params.get('product')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        return queryset
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [IsCashier()]
+        return [(IsStoreManager | IsChainManager)()]
 
 
 class StoreInventoryViewSet(viewsets.ModelViewSet):
     queryset = StoreInventory.objects.all()
     serializer_class = StoreInventorySerializer
-    permission_classes = [IsStoreManager | IsChainManager]
+
+    def get_permissions(self):
+        if self.request.method in SAFE_METHODS:
+            return [IsCashier()]
+        return [(IsStoreManager | IsChainManager)()]
 
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -367,13 +394,45 @@ class OrderViewSet(viewsets.ModelViewSet):
         channel = self.request.query_params.get('channel')
         if channel:
             queryset = queryset.filter(order_type=channel)
+        store_id = self.request.query_params.get('store')
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
         return queryset
+
+    @action(detail=False, methods=['post'], url_path='checkout')
+    def checkout(self, request):
+        serializer = PosCheckoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            order = create_pos_order(
+                store=data['store'],
+                shift=data['shift'],
+                payment_method=data['payment_method'],
+                items=data['items'],
+                staff=request.user,
+                discount_percent=data['discount_percent'],
+                external_order_id=data.get('external_order_id'),
+            )
+        except InsufficientStockError as e:
+            raise ValidationError({"detail": str(e)})
+
+        response_data = OrderSerializer(order).data
+        response_data['details'] = OrderDetailSerializer(order.orderdetail_set.all(), many=True).data
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class OrderDetailViewSet(viewsets.ModelViewSet):
     queryset = OrderDetail.objects.all()
     serializer_class = OrderDetailSerializer
     permission_classes = [IsCashier | IsStoreManager | IsChainManager]
+
+    def get_queryset(self):
+        queryset = OrderDetail.objects.all()
+        order_id = self.request.query_params.get('order')
+        if order_id:
+            queryset = queryset.filter(order_id=order_id)
+        return queryset
 
     def perform_create(self, serializer):
         with transaction.atomic():
@@ -382,33 +441,84 @@ class OrderDetailViewSet(viewsets.ModelViewSet):
             sell_qty = serializer.validated_data['quantity']
             store = order.store
 
-            inventories = StoreInventory.objects.filter(
-                store=store,
-                batch__product=product,
-                quantity__gt=0
-            ).order_by('batch__expiration_date')
-
-            total_stock = sum(inv.quantity for inv in inventories)
-            if total_stock < sell_qty:
-                raise ValidationError({
-                    "detail": f"Không đủ hàng! Cửa hàng chỉ còn tồn {total_stock} sản phẩm."
-                })
-
-            remaining_to_deduct = sell_qty
-            for inv in inventories:
-                if remaining_to_deduct <= 0:
-                    break
-
-                if inv.quantity >= remaining_to_deduct:
-                    inv.quantity -= remaining_to_deduct
-                    inv.save()
-                    remaining_to_deduct = 0
-                else:
-                    remaining_to_deduct -= inv.quantity
-                    inv.quantity = 0
-                    inv.save()
+            try:
+                deduct_stock(store, product, sell_qty)
+            except InsufficientStockError as e:
+                raise ValidationError({"detail": str(e)})
 
             serializer.save()
+
+
+class ShiftViewSet(viewsets.ModelViewSet):
+    queryset = Shift.objects.all()
+    serializer_class = ShiftSerializer
+    permission_classes = [IsCashier]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        store_id = self.request.query_params.get('store')
+        status_param = self.request.query_params.get('status')
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param)
+        return queryset
+
+    def perform_create(self, serializer):
+        store = serializer.validated_data['store']
+        if Shift.objects.filter(store=store, status=Shift.STATUS_OPEN).exists():
+            raise ValidationError({"detail": "A shift is already open for this store."})
+        serializer.save(staff=self.request.user)
+
+    @action(detail=True, methods=['patch', 'put'], url_path='close', url_name='close')
+    def close_shift(self, request, pk=None):
+        shift = self.get_object()
+        if shift.status == Shift.STATUS_CLOSED:
+            return Response({"detail": "Shift is already closed."}, status=status.HTTP_400_BAD_REQUEST)
+
+        closing_cash = request.data.get('closing_cash')
+        if closing_cash is None:
+            return Response({"closing_cash": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        shift.closing_cash = closing_cash
+        shift.closed_at = timezone.now()
+        shift.status = Shift.STATUS_CLOSED
+        shift.save(update_fields=['closing_cash', 'closed_at', 'status'])
+        return Response(self.get_serializer(shift).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='eod-report', url_name='eod-report')
+    def eod_report(self, request, pk=None):
+        shift = self.get_object()
+        orders = Order.objects.filter(shift=shift, status__iexact='Completed')
+
+        cash_total = orders.filter(payment_method__iexact='Cash').aggregate(
+            total=models.Sum('total_amount'))['total'] or 0
+        bank_qr_total = orders.filter(payment_method__iexact='Bank QR').aggregate(
+            total=models.Sum('total_amount'))['total'] or 0
+
+        hourly_breakdown = list(
+            orders.annotate(hour=TruncHour('order_date'))
+            .values('hour')
+            .annotate(total=models.Sum('total_amount'), order_count=models.Count('order_id'))
+            .order_by('hour')
+        )
+
+        top_products = list(
+            OrderDetail.objects.filter(order__in=orders)
+            .values('product__product_id', 'product__product_name')
+            .annotate(total_qty=models.Sum('quantity'))
+            .order_by('-total_qty')[:5]
+        )
+
+        return Response({
+            "shift_id": shift.shift_id,
+            "order_count": orders.count(),
+            "cash_total": cash_total,
+            "bank_qr_total": bank_qr_total,
+            "grand_total": cash_total + bank_qr_total,
+            "hourly_breakdown": hourly_breakdown,
+            "top_products": top_products,
+        }, status=status.HTTP_200_OK)
 
 
 # ==========================================
@@ -448,6 +558,8 @@ def _issue_tokens(user, remember_me):
         'access': str(refresh.access_token),
         'refresh': str(refresh),
         'role': user.role.role_name if user.role else 'None',
+        'staff_id': user.staff_id,
+        'store_id': user.store_id,
         'device_token': device_token,
     }
 
@@ -831,4 +943,73 @@ class BestWorstSellerView(APIView):
         return Response({
             "best_sellers": list(best_sellers),
             "worst_sellers": list(worst_sellers)
+        }, status=status.HTTP_200_OK)
+
+
+class RevenueTrendView(APIView):
+    """Time-bucketed revenue for the Analytics/Store dashboards. `store` omitted means
+    chain-wide, matching BestWorstSellerView's no-filter-means-everything convention."""
+    permission_classes = [IsChainManager | IsStoreManager]
+
+    def get(self, request):
+        period = request.query_params.get('period', 'week')
+        if period not in ('week', 'month', 'quarter'):
+            return Response({"detail": "period must be one of: week, month, quarter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        store_id = request.query_params.get('store')
+        queryset = Order.objects.filter(status__iexact='Completed')
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+
+        today = timezone.localdate()
+
+        if period == 'quarter':
+            month_starts = []
+            cursor = today.replace(day=1)
+            for _ in range(3):
+                month_starts.append(cursor)
+                cursor = (cursor - timedelta(days=1)).replace(day=1)
+            month_starts.reverse()
+
+            rows = (
+                queryset.filter(order_date__date__gte=month_starts[0])
+                .annotate(bucket=TruncMonth('order_date', output_field=models.DateField()))
+                .values('bucket')
+                .annotate(total=Sum('total_amount'), order_count=models.Count('order_id'))
+            )
+            by_bucket = {row['bucket']: row for row in rows}
+            points = [
+                {
+                    "label": d.strftime('%b'),
+                    "date": d.isoformat(),
+                    "total": str(by_bucket[d]['total']) if d in by_bucket else '0.00',
+                    "order_count": by_bucket[d]['order_count'] if d in by_bucket else 0,
+                }
+                for d in month_starts
+            ]
+        else:
+            range_start = today - timedelta(days=6) if period == 'week' else today.replace(day=1)
+            days = [range_start + timedelta(days=i) for i in range((today - range_start).days + 1)]
+
+            rows = (
+                queryset.filter(order_date__date__gte=range_start)
+                .annotate(bucket=TruncDate('order_date'))
+                .values('bucket')
+                .annotate(total=Sum('total_amount'), order_count=models.Count('order_id'))
+            )
+            by_bucket = {row['bucket']: row for row in rows}
+            points = [
+                {
+                    "label": d.strftime('%a') if period == 'week' else str(d.day),
+                    "date": d.isoformat(),
+                    "total": str(by_bucket[d]['total']) if d in by_bucket else '0.00',
+                    "order_count": by_bucket[d]['order_count'] if d in by_bucket else 0,
+                }
+                for d in days
+            ]
+
+        return Response({
+            "period": period,
+            "store": int(store_id) if store_id else None,
+            "points": points,
         }, status=status.HTTP_200_OK)

@@ -202,6 +202,7 @@ class Order(models.Model):
     order_id = models.AutoField(primary_key=True)
     store = models.ForeignKey(Store, on_delete=models.PROTECT)
     staff = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True)
+    shift = models.ForeignKey('Shift', on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
     order_date = models.DateTimeField()
     order_type = models.CharField(max_length=50)
     payment_method = models.CharField(max_length=50)
@@ -305,3 +306,29 @@ class StaffCertificate(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.staff.full_name})"
+
+# 17. Bảng SHIFT
+class Shift(models.Model):
+    STATUS_OPEN = 'Open'
+    STATUS_CLOSED = 'Closed'
+
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_CLOSED, 'Closed'),
+    ]
+
+    shift_id = models.AutoField(primary_key=True)
+    store = models.ForeignKey(Store, on_delete=models.PROTECT)
+    staff = models.ForeignKey(Staff, on_delete=models.PROTECT)
+    register = models.CharField(max_length=50, default='Register 1')
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    opening_cash = models.DecimalField(max_digits=10, decimal_places=2)
+    closing_cash = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_OPEN)
+
+    class Meta:
+        ordering = ['-opened_at']
+
+    def __str__(self):
+        return f"Shift {self.shift_id} - {self.store.store_name} ({self.status})"

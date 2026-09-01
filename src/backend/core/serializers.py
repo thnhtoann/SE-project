@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Sum
@@ -8,7 +9,7 @@ from rest_framework import serializers
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
     Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert,
-    StaffReview, StaffDocument, StaffCertificate,
+    StaffReview, StaffDocument, StaffCertificate, Shift,
 )
 
 # Performance thresholds for StaffSerializer.get_performance_status — a
@@ -287,6 +288,46 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderDetail
         fields = '__all__'
+
+
+class ShiftSerializer(serializers.ModelSerializer):
+    staff_name = serializers.CharField(source='staff.full_name', read_only=True)
+    store_name = serializers.CharField(source='store.store_name', read_only=True)
+
+    class Meta:
+        model = Shift
+        fields = [
+            'shift_id', 'store', 'store_name', 'staff', 'staff_name', 'register',
+            'opened_at', 'closed_at', 'opening_cash', 'closing_cash', 'status',
+        ]
+        extra_kwargs = {
+            'staff': {'read_only': True},
+            'closed_at': {'read_only': True},
+            'closing_cash': {'read_only': True},
+            'status': {'read_only': True},
+        }
+
+
+class PosCheckoutItemSerializer(serializers.Serializer):
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    quantity = serializers.IntegerField(min_value=1)
+    unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'))
+
+
+class PosCheckoutSerializer(serializers.Serializer):
+    store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all())
+    shift = serializers.PrimaryKeyRelatedField(queryset=Shift.objects.all())
+    payment_method = serializers.CharField(max_length=50)
+    discount_percent = serializers.DecimalField(
+        max_digits=5, decimal_places=2, min_value=Decimal('0'), max_value=Decimal('100'), default=Decimal('0'),
+    )
+    external_order_id = serializers.CharField(max_length=100, required=False, allow_null=True, allow_blank=True)
+    items = PosCheckoutItemSerializer(many=True)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one item is required.")
+        return value
 
 
 class InventoryAlertSerializer(serializers.ModelSerializer):

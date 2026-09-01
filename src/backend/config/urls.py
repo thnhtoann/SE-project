@@ -9,7 +9,7 @@ from core.views import (
     RegisterRequestOTPView,
     RegisterVerifyOTPView,
     LoginRequestOTPView,
-    LoginVerifyOTPView, BestWorstSellerView,
+    LoginVerifyOTPView, BestWorstSellerView, RevenueTrendView,
     PasswordResetRequestOTPView,
     PasswordResetVerifyOTPView,
 )
@@ -49,6 +49,9 @@ urlpatterns = [
 
     # Mặt hàng bán chạy và ế nhất
     path('api/reports/sales-performance/', BestWorstSellerView.as_view(), name='sales-performance-report'),
+
+    # Doanh thu theo thời gian (Analytics/Store dashboards)
+    path('api/reports/revenue-trend/', RevenueTrendView.as_view(), name='revenue-trend-report'),
 
     path('api/procurement/', include('forecasting.urls')),
 ]

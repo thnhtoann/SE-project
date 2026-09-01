@@ -7,7 +7,7 @@ from .views import (
     StaffReviewViewSet, StaffDocumentViewSet, StaffCertificateViewSet,
     PurchaseOrderViewSet, PurchaseOrderDetailViewSet, ShipmentViewSet, LowStockAlertViewSet, CategoryViewSet,
     ProductViewSet, BatchViewSet, StoreInventoryViewSet,
-    OrderViewSet, OrderDetailViewSet, BestWorstSellerView,
+    OrderViewSet, OrderDetailViewSet, BestWorstSellerView, ShiftViewSet,
 )
 
 router = DefaultRouter()
@@ -28,6 +28,7 @@ router.register(r'batches', BatchViewSet)
 router.register(r'store-inventories', StoreInventoryViewSet)
 router.register(r'orders', OrderViewSet)
 router.register(r'order-details', OrderDetailViewSet)
+router.register(r'shifts', ShiftViewSet)
 
 urlpatterns = [
     path('health/', HealthCheckView.as_view(), name='health-check'),
