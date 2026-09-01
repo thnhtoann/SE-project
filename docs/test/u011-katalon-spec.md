@@ -10,7 +10,7 @@ Tài liệu đặc tả kịch bản kiểm thử tự động bằng **Katalon 
 * **Tên Use Case**: Receive Minimum Inventory Alert (Nhận cảnh báo tồn kho tối thiểu)
 * **Phân hệ**: Smart Procurement Engine
 * **Mục tiêu PA4**: Thực thi kiểm thử tự động bằng Katalon Studio trên 2 kịch bản trọng tâm:
-  1. `TC-U011-01`: Kiểm thử giá trị biên (Boundary Value Analysis - BVA) xác thực logic kích hoạt cảnh báo khi $Q \le T$ và không kích hoạt khi $Q > T$.
+  1. `TC-U011-01`: Kiểm thử giá trị biên (Boundary Value Analysis - BVA) xác thực logic kích hoạt cảnh báo khi Q ≤ T và không kích hoạt khi Q > T.
   2. `TC-U011-02`: Kiểm thử nhánh ngoại lệ A2 (Khắc phục lỗi dịch vụ gửi thông báo) - Đảm bảo khi mất kết nối mạng hoặc lỗi service thông báo, bản ghi cảnh báo vẫn được ghi nhận an toàn vào CSDL với trạng thái `is_resolved=False`.
 
 ---
@@ -18,11 +18,11 @@ Tài liệu đặc tả kịch bản kiểm thử tự động bằng **Katalon 
 ## 2. Kịch bản 1: `TC-U011-01` - BVA Boundary Value Analysis Test
 
 ### 2.1. Tham số & Ma trận Giá trị Biên
-* **Ngưỡng tồn kho tối thiểu ($T$)**: $T = 5$ (đối với sản phẩm thử nghiệm)
-* **Các mốc kiểm thử ($Q$)**:
-  - $Q = 6$ ($Q > T$ - Trên ngưỡng): Không phát sinh cảnh báo.
-  - $Q = 5$ ($Q = T$ - Đúng mốc biên): Kích hoạt 1 cảnh báo với `current_stock == 5`.
-  - $Q = 4$ ($Q < T$ - Dưới ngưỡng): Kích hoạt 1 cảnh báo với `current_stock == 4`.
+* **Ngưỡng tồn kho tối thiểu (T)**: T = 5 (đối với sản phẩm thử nghiệm)
+* **Các mốc kiểm thử (Q)**:
+  - Q = 6 (Q > T - Trên ngưỡng): Không phát sinh cảnh báo.
+  - Q = 5 (Q = T - Đúng mốc biên): Kích hoạt 1 cảnh báo với `current_stock == 5`.
+  - Q = 4 (Q < T - Dưới ngưỡng): Kích hoạt 1 cảnh báo với `current_stock == 4`.
 
 ### 2.2. Chi tiết Kịch bản Thực thi Katalon (Step-by-Step)
 
@@ -60,9 +60,9 @@ KeywordUtil.markPassed("TC-U011-01 BVA Test PASSED Successfully!")
 ```
 
 ### 2.3. Kết quả Kỳ vọng & Nghiệm thu
-* **Mốc $Q=6$**: `alerts.length == 0` (PASSED)
-* **Mốc $Q=5$**: `alert.current_stock == 5` (PASSED)
-* **Mốc $Q=4$**: `alert.current_stock == 4` (PASSED)
+* **Mốc Q = 6**: `alerts.length == 0` (PASSED)
+* **Mốc Q = 5**: `alert.current_stock == 5` (PASSED)
+* **Mốc Q = 4**: `alert.current_stock == 4` (PASSED)
 * **Trạng thái**: **PASSED**
 
 ---
@@ -108,5 +108,5 @@ KeywordUtil.markPassed("TC-U011-02 Notification Fault Recovery PASSED Successful
 
 | ID | Test Case Title | Scenario / Scope | Expected Output | Status |
 |---|---|---|---|---|
-| `TC-U011-01` | BVA Boundary Value Analysis | $Q = 6$ (No Alert), $Q = 5$ (Alert $Q=5$), $Q = 4$ (Alert $Q=4$) | System generates alerts only at $Q \le T$ | **PASSED** |
+| `TC-U011-01` | BVA Boundary Value Analysis | Q = 6 (No Alert), Q = 5 (Alert Q=5), Q = 4 (Alert Q=4) | System generates alerts only at Q ≤ T | **PASSED** |
 | `TC-U011-02` | Notification Fault Recovery | Simulated Notification Service Failure | Alert persisted in PostgreSQL DB with `is_resolved=False` | **PASSED** |

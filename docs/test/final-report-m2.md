@@ -16,7 +16,7 @@ The **Smart Procurement Engine** serves as the supply chain backbone of the Conv
 To mitigate these challenges, the Smart Procurement Engine connects store-level physical stock levels with centralized supplier coordination. It encompasses several key capabilities:
 1. **Supplier Management:** Centrally stores master vendor details, verifying business information such as contact phones, addresses, and email formats.
 2. **Purchase Order (PO) Management:** Orchestrates the lifecycle of inventory restocking. Chain Managers can create purchase orders linking to specific suppliers, specifying order quantities and unit costs for various products within ACID-compliant atomic transactions (`transaction.atomic()`).
-3. **Shipment Tracking:** Monitors incoming shipments as they transition across statuses (`Preparing` $\rightarrow$ `Delivered` or `Delayed`), enabling store managers to anticipate delivery timelines and automatically flagging overdue shipments (`expected_delivery_date < today`).
+3. **Shipment Tracking:** Monitors incoming shipments as they transition across statuses (`Preparing` → `Delivered` or `Delayed`), enabling store managers to anticipate delivery timelines and automatically flagging overdue shipments (`expected_delivery_date < today`).
 4. **Intelligent Stock Monitoring & Alerting:** Continuously analyzes active physical stock quantities against defined minimum thresholds for each product. When stock drops to critical levels, the system triggers alerts, prompting proactive replenishment to prevent stockouts of high-demand items.
 5. **Role-Based Access Control (RBAC) & JWT Security:** Enforces strict role-based authorization across all procurement endpoints (`Chain Manager` vs `Store Manager` vs `Cashier`), embedding role claims (`role_name`) directly into JWT token payloads for zero-DB-lookup permission evaluations.
 
@@ -73,25 +73,25 @@ Below are the three core manual and automated unit test cases designed and verif
 ### TC-PROC-02: Low-Stock Alert Logic (BVA)
 *   **Test Case ID:** TC-PROC-02
 *   **Related Use Case:** U011 – Receive Minimum Inventory Alert
-*   **Context:** A product has `MinThreshold = 5` configured in the `PRODUCT` table. The physical stock quantity ($Q$) in the `STORE_INVENTORY` table is manipulated across three boundary values ($Q = 6$, $Q = 5$, and $Q = 4$) to verify Boundary Value Analysis (BVA) alerting thresholds.
+*   **Context:** A product has `MinThreshold = 5` configured in the `PRODUCT` table. The physical stock quantity (Q) in the `STORE_INVENTORY` table is manipulated across three boundary values (Q = 6, Q = 5, and Q = 4) to verify Boundary Value Analysis (BVA) alerting thresholds.
 *   **Input Data:** 
     *   `PRODUCT`: Product ID: 1, `ProductName`: Instant Milk, `MinThreshold`: 5
-    *   **Scenario A:** Stock Quantity $Q = 6$ (Above boundary, $T + 1$)
-    *   **Scenario B:** Stock Quantity $Q = 5$ (On boundary, $T$)
-    *   **Scenario C:** Stock Quantity $Q = 4$ (Below boundary, $T - 1$)
+    *   **Scenario A:** Stock Quantity Q = 6 (Above boundary, T + 1)
+    *   **Scenario B:** Stock Quantity Q = 5 (On boundary, T)
+    *   **Scenario C:** Stock Quantity Q = 4 (Below boundary, T - 1)
 *   **Expected Output:** 
-    *   **Scenario A ($Q = 6$):** Alert endpoint `/api/inventory/low-stock-alerts/` does NOT include the product.
-    *   **Scenario B ($Q = 5$):** Alert endpoint triggers, including the product in the alert list.
-    *   **Scenario C ($Q = 4$):** Alert endpoint triggers, including the product in the alert list.
+    *   **Scenario A (Q = 6):** Alert endpoint `/api/inventory/low-stock-alerts/` does NOT include the product.
+    *   **Scenario B (Q = 5):** Alert endpoint triggers, including the product in the alert list.
+    *   **Scenario C (Q = 4):** Alert endpoint triggers, including the product in the alert list.
 *   **Test Steps:**
-    1. Set the physical stock level $Q = 6$ for Product 1 in `STORE_INVENTORY`. Send GET request to `/api/inventory/low-stock-alerts/` and assert the response is empty.
-    2. Update the stock level to $Q = 5$. Re-send the GET request and assert the alert is returned.
-    3. Decrease the stock level to $Q = 4$. Re-send the GET request and assert the alert is returned.
+    1. Set the physical stock level Q = 6 for Product 1 in `STORE_INVENTORY`. Send GET request to `/api/inventory/low-stock-alerts/` and assert the response is empty.
+    2. Update the stock level to Q = 5. Re-send the GET request and assert the alert is returned.
+    3. Decrease the stock level to Q = 4. Re-send the GET request and assert the alert is returned.
     4. Execute automated unit test `core.tests.LowStockBVATestCase` in the backend container.
 *   **Actual Output:** 
-    *   Scenario A ($Q = 6$): Returned `[]` (Alert is False)
-    *   Scenario B ($Q = 5$): Returned `[{"product_id": 1, "product_name": "Instant Milk", "quantity": 5, "threshold": 5}]` (Alert is True)
-    *   Scenario C ($Q = 4$): Returned `[{"product_id": 1, "product_name": "Instant Milk", "quantity": 4, "threshold": 5}]` (Alert is True)
+    *   Scenario A (Q = 6): Returned `[]` (Alert is False)
+    *   Scenario B (Q = 5): Returned `[{"product_id": 1, "product_name": "Instant Milk", "quantity": 5, "threshold": 5}]` (Alert is True)
+    *   Scenario C (Q = 4): Returned `[{"product_id": 1, "product_name": "Instant Milk", "quantity": 4, "threshold": 5}]` (Alert is True)
 *   **Result:** **PASSED**
 
 ---
@@ -122,18 +122,18 @@ Below are the three core manual and automated unit test cases designed and verif
 For the PA4 milestone, manual test cases were automated using **Katalon Studio** to conduct regression and functional API assertions on Use Case **U011 (Receive Minimum Inventory Alert)**.
 
 ### TC-U011-01: BVA Boundary Value Analysis Test (Success Path)
-*   **Objective:** To verify that the system generates low-stock warnings strictly when the physical quantity of a product is equal to or less than its defined threshold ($Q \le T$).
+*   **Objective:** To verify that the system generates low-stock warnings strictly when the physical quantity of a product is equal to or less than its defined threshold (Q ≤ T).
 *   **Input Data:**
-    *   Product ID: 1, `MinThreshold` ($T$) = 10 (configured via `seed_procurement_data.py`).
-    *   State 1: Stock Quantity $Q = 11$ (No alert expected).
-    *   State 2: Stock Quantity $Q = 10$ (Alert expected - boundary).
-    *   State 3: Stock Quantity $Q = 5$ (Alert expected - below threshold).
+    *   Product ID: 1, `MinThreshold` (T) = 10 (configured via `seed_procurement_data.py`).
+    *   State 1: Stock Quantity Q = 11 (No alert expected).
+    *   State 2: Stock Quantity Q = 10 (Alert expected - boundary).
+    *   State 3: Stock Quantity Q = 5 (Alert expected - below threshold).
 *   **Katalon Test Steps (Workflow):**
     1.  **Authenticate Cashier/Manager:** Send a `POST` request to `/api/login/` with valid credentials. Save the returned JWT token to a global variable `token`.
     2.  **Verify State 1 (Safe stock):** Send a `GET` request to `/api/inventory/low-stock-alerts/` with `Authorization: Bearer ${token}`. Assert that the returned array does not contain Product ID 1.
-    3.  **Perform POS Purchase (Update Stock):** Simulate a POS purchase of 1 unit of Product ID 1, bringing the stock level $Q$ down from 11 to 10 (on boundary).
+    3.  **Perform POS Purchase (Update Stock):** Simulate a POS purchase of 1 unit of Product ID 1, bringing the stock level Q down from 11 to 10 (on boundary).
     4.  **Verify State 2 (On Boundary):** Send a `GET` request to `/api/inventory/low-stock-alerts/`. Assert that the HTTP Status Code is `200 OK`. Check that the response contains Product ID 1 with `"quantity": 10`.
-    5.  **Perform Batch Purchase (Below Boundary):** Simulate subsequent checkouts of 5 units of Product ID 1, bringing the stock level $Q$ to 5.
+    5.  **Perform Batch Purchase (Below Boundary):** Simulate subsequent checkouts of 5 units of Product ID 1, bringing the stock level Q to 5.
     6.  **Verify State 3 (Below Boundary):** Send a `GET` request to `/api/inventory/low-stock-alerts/`. Assert that the alert list contains the product with `"quantity": 5`.
 *   **Expected Output:** State 1 returns 200 OK with empty alert list. State 2 and 3 return 200 OK containing Product ID 1 in JSON array.
 *   **Katalon Automation Script (Groovy):**
@@ -222,7 +222,7 @@ For the PA4 milestone, manual test cases were automated using **Katalon Studio**
 ## 4. Postman Automated Testing Suite & RBAC Authorization Verification
 
 ### 4.1. Postman Collection v2.1.0 Automated Suite
-In addition to Katalon, an automated Postman Collection (`docs/test/Procurement_Alerts.postman_collection.json`) was built featuring 100% automated Pre-request Scripts. The suite dynamically updates physical inventory levels via `PATCH /api/store-inventories/1/` before each test execution, validating BVA boundaries ($Q = 15, 10, 5, 0$) sequentially:
+In addition to Katalon, an automated Postman Collection (`docs/test/Procurement_Alerts.postman_collection.json`) was built featuring 100% automated Pre-request Scripts. The suite dynamically updates physical inventory levels via `PATCH /api/store-inventories/1/` before each test execution, validating BVA boundaries (Q = 15, 10, 5, 0) sequentially:
 *   `0. Authentication`: `POST /api/login/` (Retrieves and automatically sets environment variable `{{token}}`).
 *   `1. Low-Stock Alerts Suite`: Automatically sets inventory to 15, 10, 5, and 0, verifying status code `200 OK` and alert item parameters.
 *   `2. Purchase Orders Suite`: Tests nested PO creation (`POST /api/purchase-orders/`), list queries, and status updates (`PATCH /api/purchase-orders/1/status/`).
@@ -266,7 +266,7 @@ docker compose exec -T backend python manage.py seed_procurement_data
 ### Handoff Seed Data Summary
 1.  **Suppliers:** `Vinamilk Supplier Co.`, `Unilever Vietnam`, `Masan Consumer Group`.
 2.  **Branches & Catalog:** `Store #1 - District 1 POS Branch` and 3 products with `min_threshold = 10`.
-3.  **BVA Inventory Fixtures:** Configured stock quantities at boundary values ($Q = 11, 10, 5$) so that when Member 5 executes a POS checkout in the demo video, the system immediately triggers active low-stock alerts.
+3.  **BVA Inventory Fixtures:** Configured stock quantities at boundary values (Q = 11, 10, 5) so that when Member 5 executes a POS checkout in the demo video, the system immediately triggers active low-stock alerts.
 4.  **Purchase Orders:** Created sample Purchase Order `#1` (`Preparing`) linked to `Vinamilk Supplier Co.` to demonstrate shipment tracking and status progression.
 
 ---
