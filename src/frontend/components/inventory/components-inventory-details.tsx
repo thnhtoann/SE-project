@@ -1,8 +1,5 @@
 'use client';
 import IconBox from '@/components/icon/icon-box';
-import IconMail from '@/components/icon/icon-mail';
-import IconPhone from '@/components/icon/icon-phone';
-import IconMapPin from '@/components/icon/icon-map-pin';
 import IconTag from '@/components/icon/icon-tag';
 import { getTranslation } from '@/i18n';
 import {
@@ -16,49 +13,43 @@ import {
     stockStatusBadgeClass,
     stockStatusKey,
 } from '@/lib/inventory';
-import { SUPPLIERS } from '@/data/mock-products';
+import { fetchProductById } from '@/lib/inventory-assemble';
+import { currency } from '@/lib/currency';
 import { DiscountRecord, Product } from '@/types/admin';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
-
 type DiscountType = 'percentage' | 'price';
 
-const ComponentsInventoryDetails = ({ product: initialProduct }: { product: Product }) => {
+const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
     const { t } = getTranslation();
-    const [product, setProduct] = useState<Product>(initialProduct);
+    const [product, setProduct] = useState<Product | null>(null);
+    const [loading, setLoading] = useState(true);
     const [discountType, setDiscountType] = useState<DiscountType>('percentage');
     const [discountValue, setDiscountValue] = useState('');
     const [discountError, setDiscountError] = useState('');
-    const [reorderQty, setReorderQty] = useState('');
-    const [reorderNote, setReorderNote] = useState('');
-    const [reorderSent, setReorderSent] = useState(false);
 
     const discountSectionRef = useRef<HTMLDivElement>(null);
     const searchParams = useSearchParams();
 
     useEffect(() => {
-        if (searchParams.get('focus') === 'discount') {
+        setLoading(true);
+        fetchProductById(productId)
+            .then(setProduct)
+            .finally(() => setLoading(false));
+    }, [productId]);
+
+    useEffect(() => {
+        if (product && searchParams.get('focus') === 'discount') {
             discountSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
-    }, [searchParams]);
-
-    const supplier = SUPPLIERS.find((s) => s.supplier_id === product.supplier_id);
-    const stockStatus = getStockStatus(product);
-    const expiryStatus = getProductExpiryStatus(product);
-    const quantity = getTotalQuantity(product);
-
-    const submitReorder = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!reorderQty || Number(reorderQty) <= 0) return;
-        setReorderSent(true);
-    };
+    }, [product, searchParams]);
 
     const submitDiscount = (e: React.FormEvent) => {
         e.preventDefault();
         setDiscountError('');
+        if (!product) return;
 
         const value = Number(discountValue);
         if (!discountValue || Number.isNaN(value)) {
@@ -77,13 +68,32 @@ const ComponentsInventoryDetails = ({ product: initialProduct }: { product: Prod
         const percent = discountType === 'percentage' ? value : Math.round((1 - value / product.base_price) * 100);
         const record: DiscountRecord = { id: product.discountHistory.length + 1, type: discountType, value, appliedAt: new Date().toISOString().slice(0, 10) };
 
-        setProduct((prev) => ({ ...prev, discountPercent: percent, discountHistory: [record, ...prev.discountHistory] }));
+        setProduct((prev) => (prev ? { ...prev, discountPercent: percent, discountHistory: [record, ...prev.discountHistory] } : prev));
         setDiscountValue('');
     };
 
     const removeDiscount = () => {
-        setProduct((prev) => ({ ...prev, discountPercent: undefined }));
+        setProduct((prev) => (prev ? { ...prev, discountPercent: undefined } : prev));
     };
+
+    if (loading) {
+        return <div className="panel py-10 text-center text-white-dark">{t('loading')}</div>;
+    }
+
+    if (!product) {
+        return (
+            <div className="panel py-10 text-center">
+                <p className="text-white-dark">{t('product_not_found')}</p>
+                <Link href="/inventory" className="btn btn-primary mt-4">
+                    {t('back_to_product_list')}
+                </Link>
+            </div>
+        );
+    }
+
+    const stockStatus = getStockStatus(product);
+    const expiryStatus = getProductExpiryStatus(product);
+    const quantity = getTotalQuantity(product);
 
     return (
         <div>
@@ -126,8 +136,7 @@ const ComponentsInventoryDetails = ({ product: initialProduct }: { product: Prod
                                     )}
                                 </div>
                                 <div className="mt-3 text-sm text-white-dark">
-                                    {t('quantity_on_hand')}: <span className="font-semibold text-[#515365] dark:text-white-light">{quantity}</span> {product.unit}
-                                    {quantity === 1 ? '' : 's'}
+                                    {t('quantity_on_hand')}: <span className="font-semibold text-[#515365] dark:text-white-light">{quantity}</span>
                                 </div>
                                 {product.tags.length > 0 && (
                                     <div className="mt-4 flex flex-wrap gap-2">
@@ -145,47 +154,11 @@ const ComponentsInventoryDetails = ({ product: initialProduct }: { product: Prod
                     </div>
 
                     <div className="panel">
-                        <h5 className="mb-4 text-lg font-semibold">{t('supplier_details')}</h5>
-                        {supplier ? (
-                            <div className="space-y-3">
-                                <div className="font-semibold">{supplier.supplier_name}</div>
-                                <div className="flex items-center gap-2 text-white-dark">
-                                    <IconMail className="h-4 w-4 shrink-0" />
-                                    <span className="truncate">{supplier.email}</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-white-dark">
-                                    <IconPhone className="h-4 w-4 shrink-0" />
-                                    <span dir="ltr">{supplier.contact_phone}</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-white-dark">
-                                    <IconMapPin className="h-4 w-4 shrink-0" />
-                                    <span>{supplier.address}</span>
-                                </div>
-                            </div>
-                        ) : (
-                            <p className="text-white-dark">{t('no_supplier_on_file')}</p>
-                        )}
-
-                        <h5 className="mb-4 mt-6 text-lg font-semibold">{t('reorder_stock')}</h5>
-                        {reorderSent ? (
-                            <div className="rounded border border-success bg-success-light px-4 py-3 text-success">
-                                {t('reorder_request_sent_to')} {supplier?.supplier_name ?? t('the_supplier')}.
-                            </div>
-                        ) : (
-                            <form onSubmit={submitReorder} className="space-y-3">
-                                <div>
-                                    <label htmlFor="reorderQty">{t('quantity')}</label>
-                                    <input id="reorderQty" type="number" min={1} className="form-input" placeholder="e.g. 100" value={reorderQty} onChange={(e) => setReorderQty(e.target.value)} required />
-                                </div>
-                                <div>
-                                    <label htmlFor="reorderNote">{t('note')}</label>
-                                    <textarea id="reorderNote" rows={2} className="form-textarea resize-none" placeholder={t('reorder_note_placeholder')} value={reorderNote} onChange={(e) => setReorderNote(e.target.value)} />
-                                </div>
-                                <button type="submit" className="btn btn-primary w-full">
-                                    {t('send_reorder_request')}
-                                </button>
-                            </form>
-                        )}
+                        <h5 className="mb-4 text-lg font-semibold">{t('reorder_stock')}</h5>
+                        <p className="mb-4 text-sm text-white-dark">{t('reorder_stock_hint')}</p>
+                        <Link href="/inventory/order-supply" className="btn btn-primary w-full">
+                            {t('go_to_order_supply')}
+                        </Link>
                     </div>
                 </div>
 
@@ -203,6 +176,13 @@ const ComponentsInventoryDetails = ({ product: initialProduct }: { product: Prod
                                 </tr>
                             </thead>
                             <tbody>
+                                {product.batches.length === 0 && (
+                                    <tr>
+                                        <td colSpan={5} className="!text-center font-semibold text-white-dark">
+                                            {t('no_batches_yet')}
+                                        </td>
+                                    </tr>
+                                )}
                                 {product.batches.map((batch) => {
                                     const batchStatus = getBatchExpiryStatus(batch.expiration_date);
                                     const batchQty = batch.storeInventory.reduce((s, e) => s + e.quantity, 0);

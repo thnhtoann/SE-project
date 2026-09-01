@@ -1,5 +1,6 @@
 'use client';
 import AdminTable, { AdminTableColumn } from '@/components/datatable/admin-table';
+import IconBell from '@/components/icon/icon-bell';
 import IconBox from '@/components/icon/icon-box';
 import IconEdit from '@/components/icon/icon-edit';
 import IconEye from '@/components/icon/icon-eye';
@@ -22,66 +23,28 @@ import {
     stockStatusBadgeClass,
     stockStatusKey,
 } from '@/lib/inventory';
-import { BatchApiRecord, CategoryRecord, ExpiryStatus, Product, ProductApiRecord, StoreInventoryApiRecord, StoreRecord } from '@/types/admin';
+import {
+    BatchApiRecord,
+    CategoryRecord,
+    ExpiryStatus,
+    ForecastProductRow,
+    ForecastResponse,
+    InventoryAlertRecord,
+    Product,
+    ProductApiRecord,
+    StoreInventoryApiRecord,
+    StoreRecord,
+} from '@/types/admin';
+import { assembleProducts } from '@/lib/inventory-assemble';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type ExpiryFilter = 'all' | ExpiryStatus;
 
-// Assembles core.Product + core.Batch + core.StoreInventory (three separate
-// flat endpoints) into the nested Product shape lib/inventory.ts's display
-// helpers already expect -- keeps those helpers, and every column below,
-// unchanged. There's no real supplier link on core.Product, so supplier_id
-// is an unused placeholder and the Supplier column is dropped entirely
-// rather than showing fabricated data.
-const assembleProducts = (
-    products: ProductApiRecord[],
-    categories: CategoryRecord[],
-    batches: BatchApiRecord[],
-    inventories: StoreInventoryApiRecord[],
-    stores: StoreRecord[],
-): Product[] => {
-    const categoryName = Object.fromEntries(categories.map((c) => [c.category_id, c.category_name]));
-    const storeName = Object.fromEntries(stores.map((s) => [s.store_id, s.store_name]));
-
-    const inventoriesByBatch = new Map<number, StoreInventoryApiRecord[]>();
-    inventories.forEach((inv) => {
-        const list = inventoriesByBatch.get(inv.batch) ?? [];
-        list.push(inv);
-        inventoriesByBatch.set(inv.batch, list);
-    });
-
-    const batchesByProduct = new Map<number, BatchApiRecord[]>();
-    batches.forEach((b) => {
-        const list = batchesByProduct.get(b.product) ?? [];
-        list.push(b);
-        batchesByProduct.set(b.product, list);
-    });
-
-    return products.map((p) => ({
-        product_id: p.product_id,
-        barcode: p.barcode,
-        product_name: p.product_name,
-        base_price: Number(p.base_price),
-        min_threshold: p.min_threshold,
-        category: categoryName[p.category] ?? '—',
-        photo: '',
-        unit: '',
-        tags: [],
-        description: '',
-        supplier_id: 0,
-        discountHistory: [],
-        batches: (batchesByProduct.get(p.product_id) ?? []).map((b) => ({
-            batch_id: b.batch_id,
-            product_id: b.product,
-            manufacture_date: b.manufacture_date,
-            expiration_date: b.expiration_date,
-            storeInventory: (inventoriesByBatch.get(b.batch_id) ?? []).map((inv) => ({
-                store: storeName[inv.store] ?? '—',
-                quantity: inv.quantity,
-            })),
-        })),
-    }));
+const riskBadgeClass: Record<ForecastProductRow['stockout_risk'], string> = {
+    Low: 'bg-success-light text-success dark:bg-success dark:text-success-light',
+    Medium: 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light',
+    High: 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light',
 };
 
 const ComponentsInventoryList = () => {
@@ -90,6 +53,13 @@ const ComponentsInventoryList = () => {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
+
+    // Low-stock alerts and demand-forecast reorder risk (forecasting/procurement apps) --
+    // both Store/Chain-Manager-only, so a Cashier viewing this page degrades gracefully to
+    // no alerts panel / no risk column rather than an error.
+    const [alerts, setAlerts] = useState<InventoryAlertRecord[]>([]);
+    const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
+    const [forecastByProduct, setForecastByProduct] = useState<Map<number, ForecastProductRow>>(new Map());
 
     useEffect(() => {
         Promise.all([
@@ -104,6 +74,21 @@ const ComponentsInventoryList = () => {
             })
             .catch(() => setItems([]))
             .finally(() => setLoading(false));
+
+        apiFetch<InventoryAlertRecord[]>('/low-stock-alerts/?is_resolved=false')
+            .then(setAlerts)
+            .catch(() => setAlerts([]));
+
+        apiFetch<ForecastResponse>('/procurement/forecast/')
+            .then((res) => setForecastByProduct(new Map(res.products.map((p) => [p.product_id, p]))))
+            .catch(() => setForecastByProduct(new Map()));
+    }, []);
+
+    const resolveAlert = useCallback((alertId: number) => {
+        setResolvingAlertId(alertId);
+        apiFetch(`/low-stock-alerts/${alertId}/resolve/`, { method: 'PATCH', body: { is_resolved: true } })
+            .then(() => setAlerts((prev) => prev.filter((a) => a.alert_id !== alertId)))
+            .finally(() => setResolvingAlertId(null));
     }, []);
 
     const filtered = useMemo(
@@ -177,6 +162,26 @@ const ComponentsInventoryList = () => {
                 },
             },
             {
+                key: 'restock_risk',
+                header: t('restock_risk'),
+                sortable: true,
+                sortValue: (p) => forecastByProduct.get(p.product_id)?.stockout_risk ?? '',
+                render: (p) => {
+                    const forecast = forecastByProduct.get(p.product_id);
+                    if (!forecast) return <span className="text-white-dark">—</span>;
+                    return (
+                        <div className="flex flex-col gap-1" title={forecast.reasoning}>
+                            <span className={`badge w-fit ${riskBadgeClass[forecast.stockout_risk]}`}>{forecast.stockout_risk}</span>
+                            {forecast.action_required && (
+                                <span className="text-xs text-white-dark">
+                                    {t('reorder')} {forecast.recommended_order_quantity}
+                                </span>
+                            )}
+                        </div>
+                    );
+                },
+            },
+            {
                 key: 'price',
                 header: t('price'),
                 sortable: true,
@@ -211,7 +216,7 @@ const ComponentsInventoryList = () => {
                 ),
             },
         ],
-        [t, deleteProduct],
+        [t, deleteProduct, forecastByProduct],
     );
 
     return (
@@ -272,6 +277,54 @@ const ComponentsInventoryList = () => {
                         </div>
                     </div>
                 </div>
+
+                {alerts.length > 0 && (
+                    <div className="panel mb-5 border-warning">
+                        <div className="mb-4 flex items-center gap-2">
+                            <IconBell className="h-5 w-5 shrink-0 text-warning" />
+                            <h2 className="text-xl">
+                                {t('active_low_stock_alerts')} ({alerts.length})
+                            </h2>
+                        </div>
+                        <div className="table-responsive">
+                            <table className="table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>{t('product_name')}</th>
+                                        <th>{t('store')}</th>
+                                        <th className="text-right">{t('current_stock')}</th>
+                                        <th className="text-right">{t('min_threshold')}</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {alerts.map((alert) => (
+                                        <tr key={alert.alert_id}>
+                                            <td>
+                                                <Link href={`/inventory/${alert.product}`} className="font-semibold hover:text-primary">
+                                                    {alert.product_name}
+                                                </Link>
+                                            </td>
+                                            <td>{alert.store_name ?? '—'}</td>
+                                            <td className="text-right text-danger">{alert.current_stock}</td>
+                                            <td className="text-right">{alert.min_threshold}</td>
+                                            <td className="text-right">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-outline-success btn-sm"
+                                                    disabled={resolvingAlertId === alert.alert_id}
+                                                    onClick={() => resolveAlert(alert.alert_id)}
+                                                >
+                                                    {t('resolve')}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
 
                 <div className="panel">
                     <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

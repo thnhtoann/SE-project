@@ -117,6 +117,51 @@ export interface CategoryRecord {
     category_name: string;
 }
 
+// Mirrors core.serializers.InventoryAlertSerializer.
+export interface InventoryAlertRecord {
+    alert_id: number;
+    product: number;
+    product_name: string;
+    barcode: string;
+    category_name: string;
+    store: number | null;
+    store_name: string | null;
+    current_stock: number;
+    min_threshold: number;
+    created_at: string;
+    is_resolved: boolean;
+}
+
+// One row of GET /api/procurement/forecast/'s "products" array (forecasting/views.py
+// ForecastOverviewView) -- Prophet-based reorder recommendation, read-only.
+export interface ForecastProductRow {
+    product_id: number;
+    product_name: string;
+    barcode: string;
+    current_stock: number;
+    safety_stock_level: number;
+    forecast_horizon_days: number;
+    expected_demand: number;
+    expected_demand_lower: number;
+    expected_demand_upper: number;
+    stockout_risk: 'Low' | 'Medium' | 'High';
+    action_required: boolean;
+    recommended_order_quantity: number;
+    reasoning: string;
+    forecast_generated_at: string;
+}
+
+export interface ForecastResponse {
+    overview: {
+        total_products_analyzed: number;
+        products_at_risk: number;
+        high_risk_count: number;
+        medium_risk_count: number;
+        low_risk_count: number;
+    };
+    products: ForecastProductRow[];
+}
+
 // Mirrors core.Batch (fields='__all__') -- named ...ApiRecord to avoid
 // colliding with the unrelated mock Batch shape in this file (nested
 // storeInventory, no `product` FK id) that the inventory list's display

@@ -1,7 +1,5 @@
 import ComponentsInventoryDetails from '@/components/inventory/components-inventory-details';
-import { PRODUCTS } from '@/data/mock-products';
 import { Metadata } from 'next';
-import { notFound } from 'next/navigation';
 import React from 'react';
 
 export const metadata: Metadata = {
@@ -9,13 +7,7 @@ export const metadata: Metadata = {
 };
 
 const InventoryDetails = ({ params }: { params: { id: string } }) => {
-    const product = PRODUCTS.find((p) => p.product_id === Number(params.id));
-
-    if (!product) {
-        notFound();
-    }
-
-    return <ComponentsInventoryDetails product={product} />;
+    return <ComponentsInventoryDetails productId={Number(params.id)} />;
 };
 
 export default InventoryDetails;
