@@ -50,9 +50,12 @@ class StaffScopingTests(APITestCase):
         self.client.force_authenticate(user=self.chain_manager)
         res = self.client.get(reverse('staff-list'))
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        # core.0006_seed_roles_and_staff always seeds one 'chain_manager_demo'
+        # Staff row (even in the test DB), so "all staff chain-wide" includes it.
+        seeded_demo_staff_id = Staff.objects.get(username='chain_manager_demo').staff_id
         self.assertEqual(
             {row['staff_id'] for row in res.data},
-            {self.chain_manager.staff_id, self.store_manager_a.staff_id, self.store_manager_b.staff_id},
+            {self.chain_manager.staff_id, self.store_manager_a.staff_id, self.store_manager_b.staff_id, seeded_demo_staff_id},
         )
 
     def test_chain_manager_can_filter_by_store(self):

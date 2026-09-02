@@ -240,6 +240,8 @@ class PurchaseOrderApiTests(TestCase):
         )
         self.client.force_authenticate(user=self.user)
 
+        self.store = Store.objects.create(store_name='Main Store', location='HCMC')
+
         # Setup Supplier, Category, and Products
         self.supplier = Supplier.objects.create(
             supplier_name='Global Trade Co',
@@ -267,6 +269,7 @@ class PurchaseOrderApiTests(TestCase):
         url = reverse('purchaseorder-list')
         payload = {
             'supplier': self.supplier.pk,
+            'store': self.store.pk,
             'order_date': '2026-08-14',
             'expected_delivery_date': '2026-08-20',
             'status': 'Preparing',
