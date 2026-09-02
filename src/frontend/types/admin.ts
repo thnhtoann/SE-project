@@ -117,6 +117,30 @@ export interface RevenueTrendResponse {
     previous_expense_total: string;
 }
 
+// Response shape of POST /advisor/analyze/ (advisor/views.py AdvisorAnalyzeView).
+export interface AdvisorRecommendation {
+    title: string;
+    reasoning: string;
+    source: 'internal_data' | 'market_context';
+    priority: 'high' | 'medium' | 'low';
+}
+
+export interface AdvisorAnomaly {
+    type: string;
+    severity: string;
+    detail: string;
+}
+
+export interface AdvisorAnalyzeResponse {
+    period: 'week' | 'month' | 'quarter';
+    store_id: number | null;
+    metrics: Record<string, unknown>;
+    anomalies: AdvisorAnomaly[];
+    recommendations: AdvisorRecommendation[];
+    recommendations_verified: boolean;
+    market_context: string | null;
+}
+
 // Response shape of GET /reports/sales-by-category/ (core/views.py SalesByCategoryView).
 export interface SalesByCategoryRow {
     category: string;

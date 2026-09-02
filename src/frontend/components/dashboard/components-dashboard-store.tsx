@@ -8,8 +8,10 @@ import TierBadge from '@/components/customers/tier-badge';
 import { BRANCH_SHARE, DEVICE_VISITS, MEMBERSHIP_TIERS, PERIOD_MULTIPLIER, TOP_CUSTOMERS, VIP_CUSTOMER } from '@/data/mock-dashboards';
 import { IRootState } from '@/store';
 import { useApi } from '@/lib/hooks/use-api';
+import { apiFetch, ApiError } from '@/lib/api-client';
 import { currency } from '@/lib/currency';
 import {
+    AdvisorAnalyzeResponse,
     PeakHoursResponse,
     ReportPeriod,
     RevenueByChannelResponse,
@@ -23,6 +25,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
+import { ThinkingOrb } from 'thinking-orbs';
 
 type StoreTab = 'performance' | 'customers';
 
@@ -34,6 +37,9 @@ const ComponentsDashboardStore = () => {
     const [period, setPeriod] = useState<ReportPeriod>('month');
     const [branchId, setBranchId] = useState<number | null>(null);
     const [tab, setTab] = useState<StoreTab>('performance');
+    const [advisorLoading, setAdvisorLoading] = useState(false);
+    const [advisorResult, setAdvisorResult] = useState<AdvisorAnalyzeResponse | null>(null);
+    const [advisorError, setAdvisorError] = useState('');
 
     useEffect(() => {
         setIsMounted(true);
@@ -85,6 +91,24 @@ const ComponentsDashboardStore = () => {
     // No comparison shown when the prior period had zero (or negative) profit -- a
     // percentage against a non-positive base is undefined/misleading, not "infinite growth".
     const revenueChangePct = previousBranchProfit > 0 ? ((branchProfit - previousBranchProfit) / previousBranchProfit) * 100 : null;
+
+    const runAdvisor = async () => {
+        if (advisorLoading || !branchId) return;
+        setAdvisorLoading(true);
+        setAdvisorError('');
+        try {
+            const result = await apiFetch<AdvisorAnalyzeResponse>('/advisor/analyze/', {
+                method: 'POST',
+                body: { period, store: branchId },
+            });
+            setAdvisorResult(result);
+        } catch (err) {
+            setAdvisorResult(null);
+            setAdvisorError(err instanceof ApiError ? ((err.body as { detail?: string } | null)?.detail ?? err.message) : t('error_advisor_failed'));
+        } finally {
+            setAdvisorLoading(false);
+        }
+    };
 
     const branchMembers = MEMBERSHIP_TIERS.map((t) => Math.round(t.count * share));
 
@@ -300,7 +324,17 @@ const ComponentsDashboardStore = () => {
                 ) : tab === 'performance' ? (
                     <>
                         <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
-                            <div className="panel bg-gradient-to-r from-cyan-500 to-cyan-400 text-white">
+                            <div className="panel relative bg-gradient-to-r from-cyan-500 to-cyan-400 text-white">
+                                <button
+                                    type="button"
+                                    onClick={runAdvisor}
+                                    disabled={advisorLoading}
+                                    title={t('run_ai_advisor')}
+                                    aria-label={t('run_ai_advisor')}
+                                    className="absolute right-4 top-4 rounded-full transition-transform hover:scale-110 disabled:cursor-wait"
+                                >
+                                    <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
+                                </button>
                                 <h6 className="text-[13px] opacity-90">{t('branch_profit')}</h6>
                                 <p className="mt-2 text-2xl font-semibold">{currency(branchProfit)}</p>
                                 <p className="mt-1 text-xs opacity-75">
@@ -330,6 +364,71 @@ const ComponentsDashboardStore = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {(advisorError || advisorResult) && (
+                            <div className="panel mb-5">
+                                <div className="mb-4 flex items-center justify-between">
+                                    <h5 className="text-lg font-semibold dark:text-white-light">{t('ai_advisor_results')}</h5>
+                                    <button
+                                        type="button"
+                                        className="text-white-dark hover:text-danger"
+                                        onClick={() => {
+                                            setAdvisorResult(null);
+                                            setAdvisorError('');
+                                        }}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+
+                                {advisorError && <div className="rounded border border-danger bg-danger-light px-4 py-3 text-danger">{advisorError}</div>}
+
+                                {advisorResult && (
+                                    <div className="space-y-4">
+                                        {!advisorResult.recommendations_verified && <p className="text-xs text-warning">{t('ai_advisor_unverified_notice')}</p>}
+
+                                        {advisorResult.anomalies.length > 0 && (
+                                            <div className="space-y-2">
+                                                {advisorResult.anomalies.map((a, i) => (
+                                                    <div
+                                                        key={i}
+                                                        className={`rounded px-3 py-2 text-sm ${a.severity === 'high' ? 'bg-danger-light text-danger' : 'bg-warning-light text-warning'}`}
+                                                    >
+                                                        {a.detail}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {advisorResult.recommendations.length === 0 ? (
+                                            <p className="text-sm text-white-dark">{t('ai_advisor_no_recommendations')}</p>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {advisorResult.recommendations.map((r, i) => (
+                                                    <div key={i} className="rounded-md border border-[#ebedf2] p-3 dark:border-[#191e3a]">
+                                                        <div className="mb-1 flex items-center gap-2">
+                                                            <span
+                                                                className={`badge ${
+                                                                    r.priority === 'high'
+                                                                        ? 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light'
+                                                                        : r.priority === 'medium'
+                                                                          ? 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light'
+                                                                          : 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light'
+                                                                }`}
+                                                            >
+                                                                {r.priority}
+                                                            </span>
+                                                            <h6 className="font-semibold dark:text-white-light">{r.title}</h6>
+                                                        </div>
+                                                        <p className="text-sm text-white-dark">{r.reasoning}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <div className="panel">
