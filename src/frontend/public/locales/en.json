@@ -418,6 +418,7 @@
     "ai_advisor_results": "AI Advisor",
     "ai_advisor_unverified_notice": "These recommendations could not be fully verified against the underlying data — review before acting on them.",
     "ai_advisor_no_recommendations": "No recommendations for this period.",
+    "thinking_ellipsis": "Thinking...",
     "branch_location": "Branch Location",
     "sales_by_category": "Sale by Category",
     "income": "Income",

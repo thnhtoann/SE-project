@@ -71,6 +71,15 @@ module.exports = {
             boxShadow: {
                 '3xl': '0 2px 2px rgb(224 230 237 / 46%), 1px 6px 7px rgb(224 230 237 / 46%)',
             },
+            keyframes: {
+                shimmer: {
+                    '0%': { backgroundPosition: '150% 0' },
+                    '100%': { backgroundPosition: '-50% 0' },
+                },
+            },
+            animation: {
+                shimmer: 'shimmer 2s linear infinite',
+            },
             typography: ({ theme }) => ({
                 DEFAULT: {
                     css: {

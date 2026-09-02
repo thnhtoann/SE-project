@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
 import { ThinkingOrb } from 'thinking-orbs';
+import { BorderBeam } from 'border-beam';
 
 type StoreTab = 'performance' | 'customers';
 
@@ -324,33 +325,40 @@ const ComponentsDashboardStore = () => {
                 ) : tab === 'performance' ? (
                     <>
                         <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
-                            <div className="panel relative bg-gradient-to-r from-cyan-500 to-cyan-400 text-white">
-                                <button
-                                    type="button"
-                                    onClick={runAdvisor}
-                                    disabled={advisorLoading}
-                                    title={t('run_ai_advisor')}
-                                    aria-label={t('run_ai_advisor')}
-                                    className="absolute right-4 top-4 rounded-full transition-transform hover:scale-110 disabled:cursor-wait"
-                                >
-                                    <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
-                                </button>
-                                <h6 className="text-[13px] opacity-90">{t('branch_profit')}</h6>
-                                <p className="mt-2 text-2xl font-semibold">{currency(branchProfit)}</p>
-                                <p className="mt-1 text-xs opacity-75">
-                                    {currency(branchRevenue)} {t('revenue')} − {currency(branchExpense)} {t('expenses')}
-                                </p>
-                                {revenueChangePct !== null && (
-                                    <p className={`mt-1 flex items-center gap-1 text-xs font-semibold ${revenueChangePct >= 0 ? 'text-[#00ab55]' : 'text-[#e7515a]'}`}>
-                                        <IconTrendingUp className={`h-3.5 w-3.5 ${revenueChangePct >= 0 ? '' : 'rotate-180'}`} />
-                                        <span>
-                                            {revenueChangePct >= 0 ? '+' : '-'}
-                                            {Math.abs(revenueChangePct).toFixed(1)}%
-                                        </span>
-                                        <span className="text-white opacity-75">{t('vs_previous_period')}</span>
+                            <BorderBeam size="md" colorVariant="ocean">
+                                <div className="panel relative bg-neutral-800 text-white">
+                                    <button
+                                        type="button"
+                                        onClick={runAdvisor}
+                                        disabled={advisorLoading}
+                                        title={t('run_ai_advisor')}
+                                        aria-label={t('run_ai_advisor')}
+                                        className="absolute right-4 top-4 rounded-full transition-transform hover:scale-110 disabled:cursor-wait"
+                                    >
+                                        <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
+                                    </button>
+                                    <h6 className="text-[13px] opacity-90">{t('branch_profit')}</h6>
+                                    <p className="mt-2 text-2xl font-semibold">{currency(branchProfit)}</p>
+                                    <p className="mt-1 text-xs opacity-75">
+                                        {currency(branchRevenue)} {t('revenue')} − {currency(branchExpense)} {t('expenses')}
                                     </p>
-                                )}
-                            </div>
+                                    {revenueChangePct !== null && (
+                                        <p className={`mt-1 flex items-center gap-1 text-xs font-semibold ${revenueChangePct >= 0 ? 'text-[#00ab55]' : 'text-[#e7515a]'}`}>
+                                            <IconTrendingUp className={`h-3.5 w-3.5 ${revenueChangePct >= 0 ? '' : 'rotate-180'}`} />
+                                            <span>
+                                                {revenueChangePct >= 0 ? '+' : '-'}
+                                                {Math.abs(revenueChangePct).toFixed(1)}%
+                                            </span>
+                                            <span className="text-white opacity-75">{t('vs_previous_period')}</span>
+                                        </p>
+                                    )}
+                                    {advisorLoading && (
+                                        <p className="mt-2 w-fit animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-white/30 via-white to-white/30 bg-clip-text text-xs font-semibold text-transparent">
+                                            {t('thinking_ellipsis')}
+                                        </p>
+                                    )}
+                                </div>
+                            </BorderBeam>
                             <div className="panel lg:col-span-2">
                                 <div className="flex items-start gap-3">
                                     <div className="grid h-11 w-11 shrink-0 place-content-center rounded-md bg-primary-light text-primary dark:bg-primary dark:text-primary-light">
