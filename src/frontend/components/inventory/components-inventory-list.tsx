@@ -99,7 +99,7 @@ const ComponentsInventoryList = () => {
     );
 
     const totalProducts = items.length;
-    const lowOrOutOfStock = items.filter((p) => getStockStatus(p) !== 'In Stock').length;
+    const lowOrOutOfStock = items.filter((p) => getEffectiveStockStatus(p, forecastByProduct.get(p.product_id)) !== 'In Stock').length;
     const expiringSoon = items.filter((p) => getProductExpiryStatus(p) === 'Near Expiry').length;
     const expired = items.filter((p) => getProductExpiryStatus(p) === 'Expired').length;
 
