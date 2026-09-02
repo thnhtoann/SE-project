@@ -6,7 +6,7 @@ import IconUsersGroup from '@/components/icon/icon-users-group';
 import PeriodSelector from '@/components/dashboard/period-selector';
 import { IRootState } from '@/store';
 import { useApi } from '@/lib/hooks/use-api';
-import { CustomerRecord, OrderRecord, ProductApiRecord, ReportPeriod, RevenueTrendResponse, StaffRecord } from '@/types/admin';
+import { CategoryRecord, CustomerRecord, OrderRecord, ProductApiRecord, ReportPeriod, RevenueTrendResponse, StaffRecord } from '@/types/admin';
 import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
@@ -28,6 +28,18 @@ const statusKey: Record<string, string> = {
 
 const defaultBadgeClass = 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]';
 
+// Cycled by category_id so the same category always gets the same color, without
+// needing a per-category-name lookup table that would drift as categories change.
+const CATEGORY_BADGE_COLORS = [
+    'bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-400',
+    'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400',
+    'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400',
+    'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400',
+    'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400',
+    'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-400',
+];
+const categoryBadgeClass = (categoryId: number) => CATEGORY_BADGE_COLORS[categoryId % CATEGORY_BADGE_COLORS.length];
+
 interface TopProductRow {
     product__product_id: number;
     product__product_name: string;
@@ -44,6 +56,7 @@ const ComponentsDashboardAnalytics = () => {
     const { data: salesPerformance } = useApi<{ best_sellers: TopProductRow[] }>('/reports/sales-performance/?limit=5');
     const { data: orders } = useApi<OrderRecord[]>('/orders/');
     const { data: products } = useApi<ProductApiRecord[]>('/products/');
+    const { data: categories } = useApi<CategoryRecord[]>('/categories/');
     // /staff/ is store-scoped server-side for a Store Manager (chain-wide for Chain
     // Manager/Admin); /customers/ has no store scoping at all yet (CustomerViewSet
     // has no get_queryset override) so total_customers is always chain-wide.
@@ -56,6 +69,8 @@ const ComponentsDashboardAnalytics = () => {
 
     const topProducts = salesPerformance?.best_sellers ?? [];
     const productImageById = useMemo(() => new Map((products ?? []).map((p) => [p.product_id, p.image_url])), [products]);
+    const productCategoryById = useMemo(() => new Map((products ?? []).map((p) => [p.product_id, p.category])), [products]);
+    const categoryNameById = useMemo(() => new Map((categories ?? []).map((c) => [c.category_id, c.category_name])), [categories]);
     const recentOrders = useMemo(() => [...(orders ?? [])].sort((a, b) => (a.order_date < b.order_date ? 1 : -1)).slice(0, 5), [orders]);
 
     const points = trend?.points ?? [];
@@ -161,6 +176,8 @@ const ComponentsDashboardAnalytics = () => {
                                     {topProducts.length === 0 && <p className="text-sm text-white-dark">{t('no_sales_data_period')}</p>}
                                     {topProducts.map((product) => {
                                         const imageUrl = productImageById.get(product.product__product_id);
+                                        const categoryId = productCategoryById.get(product.product__product_id);
+                                        const categoryName = categoryId !== undefined ? categoryNameById.get(categoryId) : undefined;
                                         return (
                                             <div key={product.product__product_id} className="flex items-center justify-between border-b border-[#ebedf2] pb-3 last:border-0 dark:border-[#1b2e4b]">
                                                 <div className="flex items-center gap-3">
@@ -169,7 +186,12 @@ const ComponentsDashboardAnalytics = () => {
                                                     ) : (
                                                         <IconBox className="h-9 w-9 shrink-0 rounded-md text-white-dark" />
                                                     )}
-                                                    <h6 className="font-semibold text-[#515365] dark:text-white-dark">{product.product__product_name}</h6>
+                                                    <div>
+                                                        <h6 className="font-semibold text-[#515365] dark:text-white-dark">{product.product__product_name}</h6>
+                                                        {categoryName && categoryId !== undefined && (
+                                                            <span className={`badge mt-1 ${categoryBadgeClass(categoryId)}`}>{categoryName}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 <span className="font-semibold text-success">
                                                     {product.total_sold.toLocaleString('en-US')} {t('units')}
