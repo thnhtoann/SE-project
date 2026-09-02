@@ -55,6 +55,7 @@ const ComponentsDashboardAnalytics = () => {
     }, []);
 
     const topProducts = salesPerformance?.best_sellers ?? [];
+    const productImageById = useMemo(() => new Map((products ?? []).map((p) => [p.product_id, p.image_url])), [products]);
     const recentOrders = useMemo(() => [...(orders ?? [])].sort((a, b) => (a.order_date < b.order_date ? 1 : -1)).slice(0, 5), [orders]);
 
     const points = trend?.points ?? [];
@@ -158,14 +159,24 @@ const ComponentsDashboardAnalytics = () => {
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('top_selling_products')}</h5>
                                 <div className="space-y-4">
                                     {topProducts.length === 0 && <p className="text-sm text-white-dark">{t('no_sales_data_period')}</p>}
-                                    {topProducts.map((product) => (
-                                        <div key={product.product__product_id} className="flex items-center justify-between border-b border-[#ebedf2] pb-3 last:border-0 dark:border-[#1b2e4b]">
-                                            <h6 className="font-semibold text-[#515365] dark:text-white-dark">{product.product__product_name}</h6>
-                                            <span className="font-semibold text-success">
-                                                {product.total_sold.toLocaleString('en-US')} {t('units')}
-                                            </span>
-                                        </div>
-                                    ))}
+                                    {topProducts.map((product) => {
+                                        const imageUrl = productImageById.get(product.product__product_id);
+                                        return (
+                                            <div key={product.product__product_id} className="flex items-center justify-between border-b border-[#ebedf2] pb-3 last:border-0 dark:border-[#1b2e4b]">
+                                                <div className="flex items-center gap-3">
+                                                    {imageUrl ? (
+                                                        <img src={imageUrl} alt="" className="h-9 w-9 rounded-md object-cover" />
+                                                    ) : (
+                                                        <IconBox className="h-9 w-9 shrink-0 rounded-md text-white-dark" />
+                                                    )}
+                                                    <h6 className="font-semibold text-[#515365] dark:text-white-dark">{product.product__product_name}</h6>
+                                                </div>
+                                                <span className="font-semibold text-success">
+                                                    {product.total_sold.toLocaleString('en-US')} {t('units')}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
