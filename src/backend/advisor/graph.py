@@ -37,12 +37,12 @@ MAX_VERIFY_RETRIES = 3
 
 ROLE_GUIDANCE = {
     'store_manager': (
-        "Bạn đang tư vấn cho QUẢN LÝ 1 CHI NHÁNH CỤ THỂ. Lời khuyên phải mang tính "
-        "vận hành tại chỗ: nhập hàng, khuyến mãi địa phương, xử lý sản phẩm tồn/thiếu."
+        "You are advising the MANAGER OF ONE SPECIFIC STORE. Recommendations must be "
+        "operational and local: restocking, local promotions, handling slow-moving or low-stock products."
     ),
     'chain_manager': (
-        "Bạn đang tư vấn cho QUẢN LÝ TOÀN CHUỖI. Lời khuyên có thể mang tính so sánh "
-        "liên chi nhánh, điều phối tồn kho giữa các cửa hàng, nhân rộng mô hình thành công."
+        "You are advising the CHAIN MANAGER (all stores). Recommendations may compare "
+        "stores against each other, reallocate inventory between branches, or replicate what's working elsewhere."
     ),
 }
 
@@ -134,7 +134,7 @@ def detect_anomalies(state: AdvisorState) -> dict:
         anomalies.append({
             'type': 'profit_drop',
             'severity': 'high',
-            'detail': f"Lợi nhuận giảm {abs(metrics['profit_change_pct']):.1f}% so với kỳ trước.",
+            'detail': f"Profit dropped {abs(metrics['profit_change_pct']):.1f}% compared to the previous period.",
         })
 
     high_risk_products = [p for p in raw['forecast'].get('products', []) if p.get('stockout_risk') == 'High']
@@ -143,7 +143,7 @@ def detect_anomalies(state: AdvisorState) -> dict:
         anomalies.append({
             'type': 'stockout_risk',
             'severity': 'high',
-            'detail': f"{len(high_risk_products)} sản phẩm có nguy cơ hết hàng cao: {names}",
+            'detail': f"{len(high_risk_products)} product(s) at high risk of stocking out: {names}",
         })
 
     if metrics['revenue'] > 0 and (metrics['expense'] / metrics['revenue']) > 0.7:
@@ -151,7 +151,7 @@ def detect_anomalies(state: AdvisorState) -> dict:
         anomalies.append({
             'type': 'high_cost_ratio',
             'severity': 'medium',
-            'detail': f"Chi phí nhập hàng chiếm {ratio_pct:.0f}% doanh thu kỳ này.",
+            'detail': f"Order-supply cost is {ratio_pct:.0f}% of revenue this period.",
         })
 
     return {'anomalies': anomalies}
@@ -161,24 +161,24 @@ def generate_insights(state: AdvisorState) -> dict:
     llm = _build_llm()
     prompt = f"""{ROLE_GUIDANCE[state['role']]}
 
-Kỳ phân tích: {state['period']}
+Period: {state['period']}
 
-SỐ LIỆU ĐÃ XÁC MINH (chỉ được dùng đúng các con số này, tuyệt đối không tự bịa thêm số):
+VERIFIED METRICS (use only these exact numbers -- never invent or estimate a number):
 {json.dumps(state['metrics'], ensure_ascii=False, indent=2, default=str)}
 
-BẤT THƯỜNG PHÁT HIỆN ĐƯỢC:
+DETECTED ANOMALIES:
 {json.dumps(state['anomalies'], ensure_ascii=False, indent=2)}
 
-BỐI CẢNH THỊ TRƯỜNG KHU VỰC (tham khảo, KHÔNG phải số liệu nội bộ đã xác minh, có thể không chính xác):
-{state.get('market_context') or '(không có)'}
+LOCAL MARKET CONTEXT (reference only, NOT verified internal data, may be inaccurate):
+{state.get('market_context') or '(none)'}
 
-Đưa ra tối đa 5 lời khuyên cụ thể, có thể hành động ngay. Mỗi lời khuyên là 1 object có:
-- "title": tiêu đề ngắn
-- "reasoning": giải thích, PHẢI trích đúng số liệu ở trên nếu dùng số liệu nội bộ
-- "source": "internal_data" hoặc "market_context"
+Give at most 5 concrete, immediately actionable recommendations. Each recommendation is an object with:
+- "title": short title
+- "reasoning": explanation; MUST quote the exact figures above if it relies on internal data
+- "source": "internal_data" or "market_context"
 - "priority": "high" | "medium" | "low"
 
-Trả lời DUY NHẤT một JSON array hợp lệ, không kèm text nào khác, không dùng markdown fence.
+Respond in English. Reply with ONLY a valid JSON array, no other text, no markdown fence.
 """
     response = llm.invoke(prompt)
     recommendations = _parse_json_array(response.content)
@@ -193,14 +193,15 @@ def verify_insights(state: AdvisorState) -> dict:
         return {'verification_passed': False, 'verification_notes': 'No recommendations parsed from LLM output.', 'retry_count': retry_count + 1}
 
     llm = _build_llm(temperature=0)
-    check_prompt = f"""Đối chiếu LỜI KHUYÊN dưới đây với SỐ LIỆU GỐC. Nếu bất kỳ con số nào trong lời khuyên
-KHÔNG khớp hoặc không xuất hiện trong số liệu gốc, trả lời bắt đầu bằng "FAIL:" kèm lý do ngắn gọn.
-Nếu mọi con số được trích dẫn đều khớp với số liệu gốc (hoặc lời khuyên không trích số liệu nội bộ nào), trả lời "PASS".
+    check_prompt = f"""Compare the RECOMMENDATIONS below against the SOURCE METRICS. If any number in the
+recommendations does NOT match or does not appear in the source metrics, reply starting with "FAIL:" followed
+by a brief reason. If every cited number matches the source metrics (or the recommendation cites no internal
+data at all), reply "PASS".
 
-SỐ LIỆU GỐC:
+SOURCE METRICS:
 {json.dumps(state['metrics'], ensure_ascii=False, default=str)}
 
-LỜI KHUYÊN:
+RECOMMENDATIONS:
 {json.dumps(recommendations, ensure_ascii=False)}
 """
     response = llm.invoke(check_prompt)

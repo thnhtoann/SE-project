@@ -27,9 +27,9 @@ def fetch_market_context(store_location, period):
         return MARKET_CONTEXT_UNAVAILABLE
 
     query = (
-        f"Xu hướng tiêu dùng bán lẻ, sự kiện, mùa vụ đáng chú ý gần đây "
-        f"ảnh hưởng đến cửa hàng tạp hoá/tiện lợi tại khu vực '{store_location}' "
-        f"trong {period} này. Trả lời ngắn gọn bằng tiếng Việt, tối đa 5 gạch đầu dòng."
+        f"Recent retail consumer trends, events, or seasonal factors that could affect a "
+        f"grocery/convenience store in the '{store_location}' area over this {period}. "
+        f"Answer in English, concise, at most 5 bullet points."
     )
 
     try:
