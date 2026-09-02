@@ -7,9 +7,14 @@ mock Prophet.fit/predict rather than running a real training job in the test sui
 """
 from django.test import TestCase
 from django.core.management import call_command
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIClient, APITestCase
+
+from core.models import Batch, Category, Product, Role, Staff, Store, StoreInventory
 
 from .po_logic import evaluate_reorder
-from .models import DailySalesRecord
+from .models import DailySalesRecord, DemandForecast
 
 class EvaluateReorderTests(TestCase):
     """FCST-4: reorder-point logic."""
@@ -50,3 +55,61 @@ class GenerateSalesDataCommandTests(TestCase):
         self.assertTrue(DailySalesRecord.objects.exists())
         # 2 channel rows (In-store + Online) per product per day
         self.assertEqual(DailySalesRecord.objects.count(), 5 * 2 * 2)
+
+
+class ForecastOverviewStoreScopingTests(APITestCase):
+    """FCST-5 store scoping: current_stock (and therefore the risk evaluation) must match
+    whichever store is being viewed, not silently fall back to a chain-wide total -- this
+    is what made the Inventory page's tooltip cite a different "current stock" than the
+    Quantity column when a specific store was selected."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.store_a = Store.objects.create(store_name='Store A', location='HCMC')
+        self.store_b = Store.objects.create(store_name='Store B', location='HCMC')
+
+        category = Category.objects.create(category_name='Snacks')
+        self.product = Product.objects.create(barcode='FCST-1', product_name='Chips', base_price='10000.00', min_threshold=5, category=category)
+        batch = Batch.objects.create(product=self.product, manufacture_date='2026-01-01', expiration_date='2026-12-31')
+        StoreInventory.objects.create(store=self.store_a, batch=batch, quantity=15)
+        StoreInventory.objects.create(store=self.store_b, batch=batch, quantity=70)
+
+        DemandForecast.objects.create(
+            product=self.product, forecast_horizon_days=7,
+            expected_demand='57.06', expected_demand_lower='32.87', expected_demand_upper='81.88',
+            safety_stock_level=50,
+        )
+
+        chain_role = Role.objects.get_or_create(role_name='Chain Manager')[0]
+        manager_role = Role.objects.get_or_create(role_name='Store Manager')[0]
+        self.chain_manager = Staff.objects.create_user(
+            username='fcst_chain_manager', password='password123', full_name='Chain Manager', role=chain_role, store=None,
+        )
+        self.store_manager_a = Staff.objects.create_user(
+            username='fcst_store_manager_a', password='password123', full_name='Manager A', role=manager_role, store=self.store_a,
+        )
+
+    def test_store_manager_gets_own_store_current_stock(self):
+        self.client.force_authenticate(user=self.store_manager_a)
+        res = self.client.get(reverse('demand-forecast'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['products'][0]['current_stock'], 15)
+
+    def test_store_manager_cannot_use_store_param_to_see_another_store(self):
+        self.client.force_authenticate(user=self.store_manager_a)
+        res = self.client.get(reverse('demand-forecast'), {'store': self.store_b.store_id})
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['products'][0]['current_stock'], 15)
+
+    def test_chain_manager_gets_chain_wide_total_by_default(self):
+        self.client.force_authenticate(user=self.chain_manager)
+        res = self.client.get(reverse('demand-forecast'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['products'][0]['current_stock'], 85)
+
+    def test_chain_manager_can_scope_to_one_store(self):
+        self.client.force_authenticate(user=self.chain_manager)
+        res = self.client.get(reverse('demand-forecast'), {'store': self.store_b.store_id})
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertEqual(res.data['products'][0]['current_stock'], 70)

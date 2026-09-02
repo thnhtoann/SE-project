@@ -59,8 +59,11 @@ const ComponentsInventoryList = () => {
 
     // Store Manager/Cashier are locked server-side to their own store no matter
     // what's requested here; the ?store= param only ever does something for a
-    // Chain Manager/Admin using the store picker below.
-    const inventoryPath = isChainManager && selectedStoreId ? `/store-inventories/?store=${selectedStoreId}` : '/store-inventories/';
+    // Chain Manager/Admin using the store picker below. Same param on both
+    // endpoints so the forecast's current_stock always matches the Quantity
+    // column instead of silently falling back to a chain-wide total.
+    const storeQuery = isChainManager && selectedStoreId ? `?store=${selectedStoreId}` : '';
+    const inventoryPath = `/store-inventories/${storeQuery}`;
 
     const { data: products, mutate: mutateProducts } = useApi<ProductApiRecord[]>('/products/');
     const { data: categories } = useApi<CategoryRecord[]>('/categories/');
@@ -69,7 +72,7 @@ const ComponentsInventoryList = () => {
     const { data: stores } = useApi<StoreRecord[]>('/stores/');
     // Demand-forecast reorder risk (forecasting/procurement apps) -- Store/Chain-Manager-only,
     // so a Cashier viewing this page degrades gracefully to no risk indicator rather than an error.
-    const { data: forecastResponse } = useApi<ForecastResponse>('/procurement/forecast/');
+    const { data: forecastResponse } = useApi<ForecastResponse>(`/procurement/forecast/${storeQuery}`);
 
     const loading = !products || !categories || !batches || !inventories || !stores;
     const items = useMemo(
