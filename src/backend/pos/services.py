@@ -360,25 +360,39 @@ class OrderService:
     def checkout(self, order_id, payment_method):
         """
         Perform checkout for an order.
-        Validates order exists and has items. Moves order to Processing state.
-        Stock deduction happens later when payment webhook confirms (Webhook Paid).
-         
+        Cash/Card/Online Banking are paid immediately and deduct stock at checkout.
+        Bank QR remains in Processing until the payment webhook confirms success.
+
         Raises:
             ValueError: If order cannot be checked out
         """
- 
+
         order = Order.objects.get(order_id=order_id)
- 
+
         if order.status != "Pending":
             raise ValueError(f"Cannot checkout order with status: {order.status}")
- 
+
         details = OrderDetail.objects.filter(order=order)
- 
+
         if not details.exists():
             raise ValueError("Cannot checkout order with no items.")
- 
-        order.status = "Processing"
+
         order.payment_method = payment_method
+
+        if payment_method == "Bank QR":
+            order.status = "Processing"
+            order.save(update_fields=["status", "payment_method"])
+            return order
+
+        # Cash, Card, and Online Banking are instant-payment methods.
+        order.status = "Paid"
+        for detail in details:
+            deduct_stock(
+                store=order.store,
+                product=detail.product,
+                quantity=detail.quantity
+            )
+
         order.save(update_fields=["status", "payment_method"])
- 
+
         return order

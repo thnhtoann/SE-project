@@ -282,43 +282,37 @@ class OrderServiceTest(TestCase):
     # =====================================================
 
     def test_checkout_success_with_stock_deduction(self):
-        """Test checkout API moves order to Processing without deducting stock yet.
-        Stock deduction happens when payment webhook confirms (Webhook Paid)."""
+        """Cash payments are immediately paid and stock is deducted at checkout."""
         from core.models import StoreInventory
-         
-        # Create batch with inventory
+
         batch = Batch.objects.create(
             product=self.product,
             manufacture_date=date.today() - timedelta(days=30),
             expiration_date=date.today() + timedelta(days=10),
         )
-         
-        # Stock: batch=10
+
         StoreInventory.objects.create(store=self.store, batch=batch, quantity=10)
-         
-        # Create order and add 7 items
+
         order = self.service.create_order(self.store.store_id, self.staff.staff_id)
         self.service.add_item(order.order_id, self.product.product_id, 7)
-         
-        # Checkout should NOT deduct stock yet
+
         checked_out_order = self.service.checkout(order.order_id, "Cash")
-         
-        # Verify stock is NOT deducted during checkout
+
         batch_inv = StoreInventory.objects.get(store=self.store, batch=batch)
-         
+
         self.print_json(
             "test_checkout_success_with_stock_deduction",
             {
                 "order_id": checked_out_order.order_id,
                 "status": checked_out_order.status,
                 "payment_method": checked_out_order.payment_method,
-                "stock_still_reserved": batch_inv.quantity,
+                "stock_remaining": batch_inv.quantity,
             },
         )
-         
-        self.assertEqual(checked_out_order.status, "Processing")
+
+        self.assertEqual(checked_out_order.status, "Paid")
         self.assertEqual(checked_out_order.payment_method, "Cash")
-        self.assertEqual(batch_inv.quantity, 10)  # Stock NOT deducted yet
+        self.assertEqual(batch_inv.quantity, 3)
 
     def test_checkout_no_items_fails(self):
         """Test checkout fails when order has no items"""
