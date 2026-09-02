@@ -81,11 +81,17 @@ class AddItemView(APIView):
 
         service = OrderService()
 
-        detail = service.add_item(
+        try:
+            detail = service.add_item(
             order_id=order_id,
             product_id=serializer.validated_data["product_id"],
             quantity=serializer.validated_data["quantity"],
         )
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         return Response(
             {

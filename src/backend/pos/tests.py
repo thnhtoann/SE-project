@@ -129,11 +129,14 @@ class OrderServiceTest(TestCase):
     # =====================================================
 
     def test_sales_analytics_returns_grouped_metrics(self):
-        Batch.objects.create(
+        from core.models import StoreInventory
+
+        batch = Batch.objects.create(
             product=self.product,
             manufacture_date=date.today() - timedelta(days=30),
             expiration_date=date.today() + timedelta(days=5),
         )
+        StoreInventory.objects.create(store=self.store, batch=batch, quantity=10)
 
         paid_order = self.service.create_order(
             self.store.store_id,
@@ -201,11 +204,13 @@ class OrderServiceTest(TestCase):
     # =====================================================
 
     def test_add_item(self):
-        Batch.objects.create(
+        batch = Batch.objects.create(
             product=self.product,
             manufacture_date=date.today() - timedelta(days=30),
             expiration_date=date.today() + timedelta(days=5),
         )
+        from core.models import StoreInventory
+        StoreInventory.objects.create(store=self.store, batch=batch, quantity=10)
 
         order = self.service.create_order(
             self.store.store_id,
@@ -238,11 +243,14 @@ class OrderServiceTest(TestCase):
     # =====================================================
 
     def test_remove_item(self):
-        Batch.objects.create(
+        from core.models import StoreInventory
+
+        batch = Batch.objects.create(
             product=self.product,
             manufacture_date=date.today() - timedelta(days=30),
             expiration_date=date.today() + timedelta(days=5),
         )
+        StoreInventory.objects.create(store=self.store, batch=batch, quantity=10)
 
         order = self.service.create_order(
             self.store.store_id,
@@ -505,11 +513,14 @@ class OrderServiceTest(TestCase):
          
         self.assertEqual(result3["discount"], Decimal("2400.00"))
         self.assertEqual(result3["final_price"], Decimal("9600.00"))
-        Batch.objects.create(
+        from core.models import StoreInventory
+
+        batch = Batch.objects.create(
             product=self.product,
             manufacture_date=date.today() - timedelta(days=30),
             expiration_date=date.today() + timedelta(days=5),
         )
+        StoreInventory.objects.create(store=self.store, batch=batch, quantity=10)
 
         order = self.service.create_order(
             self.store.store_id,

@@ -40,13 +40,30 @@ class OrderService:
 
     @transaction.atomic
     def add_item(self, order_id, product_id, quantity):
-        """Add product to current order."""
+        """Add product to current order after checking store stock availability."""
 
         if quantity <= 0:
             raise ValueError("Quantity must be greater than zero.")
 
         order = Order.objects.get(order_id=order_id)
         product = Product.objects.get(product_id=product_id)
+
+        # Check current store stock and any quantities already reserved in this order.
+        current_in_order = OrderDetail.objects.filter(order=order, product=product).aggregate(
+            total_quantity=Sum("quantity")
+        )["total_quantity"] or 0
+
+        stock_available = (
+            order.store.storeinventory_set.filter(batch__product=product).aggregate(
+                total_quantity=Sum("quantity")
+            )["total_quantity"] or 0
+        )
+
+        if stock_available - current_in_order < quantity:
+            raise ValueError(
+                f"Insufficient stock for product '{product.product_name}'. "
+                f"Available: {max(stock_available - current_in_order, 0)}, requested: {quantity}."
+            )
 
         # Lấy giá sau khi áp dụng giảm giá (nếu có)
         price_info = self.get_discounted_price(product_id)
