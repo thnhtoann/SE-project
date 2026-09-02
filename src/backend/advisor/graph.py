@@ -257,16 +257,19 @@ def build_graph():
     graph.add_node('verify_insights', verify_insights)
     graph.add_node('format_output', format_output)
 
-    # fetch_context and fetch_market_context run in parallel; compute_metrics
-    # only needs raw_data (internal), so it doesn't wait on the market node --
-    # LangGraph still runs both branches from START before either downstream
-    # node fires because both are declared as direct successors of START.
+    # fetch_context and fetch_market_context run in parallel. generate_insights
+    # needs output from BOTH branches (metrics/anomalies from the fetch_context
+    # branch, market_context from the other) -- passing a list of source nodes
+    # to a single add_edge call is LangGraph's join primitive: it waits for
+    # every listed predecessor to finish before firing, rather than firing as
+    # soon as the first one does (which two separate add_edge calls would do,
+    # and which is what originally caused generate_insights to run before
+    # compute_metrics/detect_anomalies had populated `metrics`/`anomalies`).
     graph.add_edge(START, 'fetch_context')
     graph.add_edge(START, 'fetch_market_context')
     graph.add_edge('fetch_context', 'compute_metrics')
     graph.add_edge('compute_metrics', 'detect_anomalies')
-    graph.add_edge('detect_anomalies', 'generate_insights')
-    graph.add_edge('fetch_market_context', 'generate_insights')
+    graph.add_edge(['detect_anomalies', 'fetch_market_context'], 'generate_insights')
     graph.add_edge('generate_insights', 'verify_insights')
     graph.add_conditional_edges('verify_insights', route_after_verify, {
         'generate_insights': 'generate_insights',
