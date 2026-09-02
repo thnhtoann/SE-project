@@ -29,18 +29,47 @@ const emptyForm: FormState = {
     expiryDate: '',
 };
 
+const NEW_CATEGORY_OPTION = '__new__';
+
 const ComponentsInventoryAddForm = () => {
     const { t } = getTranslation();
     const router = useRouter();
     const [form, setForm] = useState<FormState>(emptyForm);
-    const { data: categories } = useApi<CategoryRecord[]>('/categories/');
+    const { data: categories, mutate: mutateCategories } = useApi<CategoryRecord[]>('/categories/');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [createdProductId, setCreatedProductId] = useState<number | null>(null);
 
+    const [addingCategory, setAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [categoryError, setCategoryError] = useState('');
+    const [creatingCategory, setCreatingCategory] = useState(false);
+
     const changeValue = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { id, value } = e.target;
+        if (id === 'categoryId' && value === NEW_CATEGORY_OPTION) {
+            setAddingCategory(true);
+            return;
+        }
         setForm((prev) => ({ ...prev, [id]: value }));
+    };
+
+    const createCategory = async () => {
+        setCategoryError('');
+        if (!newCategoryName.trim()) return setCategoryError(t('error_category_name_required'));
+
+        setCreatingCategory(true);
+        try {
+            const category = await apiFetch<CategoryRecord>('/categories/', { method: 'POST', body: { category_name: newCategoryName.trim() } });
+            await mutateCategories((prev) => [...(prev ?? []), category], { revalidate: false });
+            setForm((prev) => ({ ...prev, categoryId: String(category.category_id) }));
+            setAddingCategory(false);
+            setNewCategoryName('');
+        } catch (err) {
+            setCategoryError(err instanceof ApiError ? (err.body as { detail?: string } | null)?.detail ?? err.message : t('error_category_name_required'));
+        } finally {
+            setCreatingCategory(false);
+        }
     };
 
     const submitForm = async (e: React.FormEvent) => {
@@ -157,7 +186,37 @@ const ComponentsInventoryAddForm = () => {
                                                 {c.category_name}
                                             </option>
                                         ))}
+                                        <option value={NEW_CATEGORY_OPTION}>{t('add_new_category')}</option>
                                     </select>
+                                    {addingCategory && (
+                                        <div className="mt-2 flex items-start gap-2">
+                                            <div className="flex-1">
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    placeholder={t('new_category_name_placeholder')}
+                                                    value={newCategoryName}
+                                                    onChange={(e) => setNewCategoryName(e.target.value)}
+                                                    autoFocus
+                                                />
+                                                {categoryError && <p className="mt-1 text-xs text-danger">{categoryError}</p>}
+                                            </div>
+                                            <button type="button" className="btn btn-primary btn-sm" onClick={createCategory} disabled={creatingCategory}>
+                                                {t('add')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-outline-danger btn-sm"
+                                                onClick={() => {
+                                                    setAddingCategory(false);
+                                                    setNewCategoryName('');
+                                                    setCategoryError('');
+                                                }}
+                                            >
+                                                {t('cancel')}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="price">{t('price')} (₫)</label>

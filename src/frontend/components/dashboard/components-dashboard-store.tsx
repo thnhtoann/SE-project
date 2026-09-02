@@ -150,17 +150,35 @@ const ComponentsDashboardStore = () => {
         },
     };
 
+    // Radial bar reads best with a handful of rings, so cap to the top categories by revenue.
+    const topCategories = useMemo(() => [...(categoryData?.categories ?? [])].sort((a, b) => Number(b.total) - Number(a.total)).slice(0, 5), [categoryData]);
+    const categoryTotal = topCategories.reduce((sum, c) => sum + Number(c.total), 0);
+
     const categoryChart: any = {
-        series: [{ name: t('sales_by_category'), data: (categoryData?.categories ?? []).map((c) => Math.round(Number(c.total))) }],
+        series: categoryTotal > 0 ? topCategories.map((c) => Math.round((Number(c.total) / categoryTotal) * 100)) : [],
         options: {
-            chart: { type: 'bar', height: 360, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
-            plotOptions: { bar: { horizontal: true, borderRadius: 4, distributed: true, barHeight: '60%' } },
-            colors: ['#4361ee', '#805dca', '#00ab55', '#e2a03f', '#e7515a', '#2196f3', '#00c1d4'],
-            dataLabels: { enabled: true, formatter: (val: number) => currency(val) },
-            legend: { show: false },
-            xaxis: { categories: (categoryData?.categories ?? []).map((c) => c.category) },
+            chart: { type: 'radialBar', height: 360, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
+            colors: ['#4361ee', '#805dca', '#00ab55', '#e2a03f', '#e7515a'],
+            labels: topCategories.map((c) => c.category),
+            plotOptions: {
+                radialBar: {
+                    dataLabels: {
+                        name: { fontSize: '14px' },
+                        value: { fontSize: '13px', formatter: (val: number) => `${val}%` },
+                        total: {
+                            show: true,
+                            label: t('total'),
+                            color: '#888ea8',
+                            fontSize: '16px',
+                            formatter: () => currency(categoryTotal),
+                        },
+                    },
+                },
+            },
+            legend: { show: true, position: 'bottom', horizontalAlign: 'center', fontSize: '12px' },
             grid: { borderColor: isDark ? '#191e3a' : '#e0e6ed' },
-            tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => currency(val) } },
+            tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => `${val}%` } },
+            fill: { opacity: 0.85 },
         },
     };
 
@@ -288,7 +306,7 @@ const ComponentsDashboardStore = () => {
                             </div>
                             <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_by_category')}</h5>
-                                {isMounted && <ReactApexChart series={categoryChart.series} options={categoryChart.options} type="bar" height={360} />}
+                                {isMounted && <ReactApexChart series={categoryChart.series} options={categoryChart.options} type="radialBar" height={360} />}
                             </div>
                         </div>
 
