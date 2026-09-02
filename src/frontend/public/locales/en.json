@@ -212,6 +212,7 @@
     "email": "Email",
     "phone": "Phone",
     "select_supplier": "Select a supplier",
+    "select_store": "Select a branch",
     "quantity": "Quantity",
     "quantity_on_hand": "Quantity on hand",
     "barcode": "Barcode",
@@ -289,6 +290,7 @@
     "order_sent_prefix": "Order sent to",
     "items_lowercase": "items",
     "error_select_supplier": "Select a supplier first.",
+    "error_select_store": "Select a branch first.",
     "error_add_at_least_one_item": "Add at least one item to the order.",
     "error_line_item_incomplete": "Every line item needs a product and a quantity greater than 0.",
 

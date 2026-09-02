@@ -190,13 +190,20 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     details = PurchaseOrderDetailSerializer(many=True, required=False)
     total_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     supplier_name = serializers.CharField(source='supplier.supplier_name', read_only=True)
+    store_name = serializers.CharField(source='store.store_name', read_only=True)
 
     class Meta:
         model = PurchaseOrder
         fields = [
-            'po_id', 'supplier', 'supplier_name', 'order_date',
+            'po_id', 'supplier', 'supplier_name', 'store', 'store_name', 'order_date',
             'expected_delivery_date', 'status', 'total_amount', 'details'
         ]
+        extra_kwargs = {
+            # Nullable at the DB level for historical rows, but every new PO must be
+            # tied to a branch -- Store Manager/Cashier get theirs auto-assigned in
+            # PurchaseOrderViewSet.perform_create, Chain Manager must pick one.
+            'store': {'required': True, 'allow_null': False},
+        }
 
     def validate_status(self, value):
         valid_statuses = [
@@ -246,6 +253,7 @@ class ShipmentItemSerializer(serializers.ModelSerializer):
 class ShipmentSerializer(serializers.ModelSerializer):
     supplier_name = serializers.CharField(source='supplier.supplier_name', read_only=True)
     contact_phone = serializers.CharField(source='supplier.contact_phone', read_only=True)
+    store_name = serializers.CharField(source='store.store_name', read_only=True)
     is_overdue = serializers.BooleanField(read_only=True)
     total_amount = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     details = ShipmentItemSerializer(many=True, read_only=True)
@@ -253,7 +261,7 @@ class ShipmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseOrder
         fields = [
-            'po_id', 'supplier', 'supplier_name', 'contact_phone',
+            'po_id', 'supplier', 'supplier_name', 'contact_phone', 'store', 'store_name',
             'order_date', 'expected_delivery_date', 'status',
             'is_overdue', 'total_amount', 'details'
         ]

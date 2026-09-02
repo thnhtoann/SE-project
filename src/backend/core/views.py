@@ -209,7 +209,27 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         if supplier_param:
             queryset = queryset.filter(supplier_id=supplier_param)
 
+        # Same store-scoping convention as StoreInventoryViewSet/StaffViewSet:
+        # Chain Manager/Admin can browse any branch (optionally narrowed via
+        # ?store=<id>) or everything chain-wide when omitted; everyone else is
+        # locked to their own store's purchase orders regardless of ?store=.
+        user = self.request.user
+        if user.role and user.role.role_name in ('Chain Manager', 'Admin'):
+            store_id = self.request.query_params.get('store')
+            if store_id:
+                queryset = queryset.filter(store_id=store_id)
+        else:
+            queryset = queryset.filter(store_id=user.store_id)
+
         return queryset
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.role and user.role.role_name not in ('Chain Manager', 'Admin'):
+            store = serializer.validated_data.get('store')
+            if store and store.store_id != user.store_id:
+                raise ValidationError({"store": ["You can only create purchase orders for your own store."]})
+        serializer.save()
 
     @action(detail=True, methods=['patch', 'put'], url_path='status', url_name='status')
     def update_status(self, request, pk=None):
@@ -234,6 +254,13 @@ class PurchaseOrderDetailViewSet(viewsets.ModelViewSet):
         if self.action in ['destroy', 'create', 'update', 'partial_update']:
             return [IsChainManager()]
         return [(IsStoreManager | IsChainManager)()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if not (user.role and user.role.role_name in ('Chain Manager', 'Admin')):
+            queryset = queryset.filter(po__store_id=user.store_id)
+        return queryset
 
 
 class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
@@ -260,6 +287,16 @@ class ShipmentViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(status__iexact=status_param)
         if supplier_param:
             queryset = queryset.filter(supplier_id=supplier_param)
+
+        # Same store-scoping convention as PurchaseOrderViewSet.
+        user = self.request.user
+        if user.role and user.role.role_name in ('Chain Manager', 'Admin'):
+            store_id = self.request.query_params.get('store')
+            if store_id:
+                queryset = queryset.filter(store_id=store_id)
+        else:
+            queryset = queryset.filter(store_id=user.store_id)
+
         if overdue_param is not None:
             if overdue_param.lower() in ['true', '1']:
                 from datetime import date
@@ -1023,16 +1060,15 @@ class BestWorstSellerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# PurchaseOrder has no store FK (procurement is chain-wide, not per-branch), so the
-# "expenses" series below is always chain-wide regardless of RevenueTrendView's `store` param.
 PO_LINE_COST = models.ExpressionWrapper(models.F('order_qty') * models.F('unit_cost'), output_field=models.DecimalField(max_digits=12, decimal_places=2))
 
 
 class RevenueTrendView(APIView):
     """Time-bucketed revenue (income) and order-supply cost (expenses) for the
     Analytics/Store dashboards. `store` omitted means chain-wide, matching
-    BestWorstSellerView's no-filter-means-everything convention -- this only scopes
-    income, since PurchaseOrder has no store to scope expenses by."""
+    BestWorstSellerView's no-filter-means-everything convention -- applies to both
+    series. Historical PurchaseOrder rows created before PO-per-branch existed have
+    store=None, so they only ever appear in the chain-wide (no ?store=) totals."""
     permission_classes = [IsChainManager | IsStoreManager]
 
     def get(self, request):
@@ -1063,8 +1099,11 @@ class RevenueTrendView(APIView):
             )
             by_bucket = {row['bucket']: row for row in rows}
 
+            expense_qs = PurchaseOrderDetail.objects.filter(po__order_date__gte=month_starts[0])
+            if store_id:
+                expense_qs = expense_qs.filter(po__store_id=store_id)
             expense_rows = (
-                PurchaseOrderDetail.objects.filter(po__order_date__gte=month_starts[0])
+                expense_qs
                 .annotate(bucket=TruncMonth('po__order_date', output_field=models.DateField()))
                 .values('bucket')
                 .annotate(total=Sum(PO_LINE_COST))
@@ -1093,8 +1132,11 @@ class RevenueTrendView(APIView):
             )
             by_bucket = {row['bucket']: row for row in rows}
 
+            expense_qs = PurchaseOrderDetail.objects.filter(po__order_date__gte=range_start)
+            if store_id:
+                expense_qs = expense_qs.filter(po__store_id=store_id)
             expense_rows = (
-                PurchaseOrderDetail.objects.filter(po__order_date__gte=range_start)
+                expense_qs
                 .annotate(bucket=TruncDate('po__order_date'))
                 .values('bucket')
                 .annotate(total=Sum(PO_LINE_COST))

@@ -4,8 +4,10 @@ import { getTranslation } from '@/i18n';
 import { apiFetch } from '@/lib/api-client';
 import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
-import { ShipmentRecord } from '@/types/admin';
+import { ShipmentRecord, StoreRecord } from '@/types/admin';
+import { IRootState } from '@/store';
 import { useState } from 'react';
+import { useSelector } from 'react-redux';
 
 const statusBadgeClass: Record<ShipmentRecord['status'], string> = {
     Preparing: 'bg-info-light text-info dark:bg-info dark:text-info-light',
@@ -15,7 +17,13 @@ const statusBadgeClass: Record<ShipmentRecord['status'], string> = {
 
 const ComponentsInventoryPurchaseOrders = () => {
     const { t } = getTranslation();
-    const { data, isLoading: loading, mutate: reload } = useApi<ShipmentRecord[]>('/shipments/');
+    const role = useSelector((state: IRootState) => state.session.role);
+    const isChainManager = role === 'Chain Manager' || role === 'Admin';
+    const { data: stores } = useApi<StoreRecord[]>('/stores/');
+
+    const [selectedStoreId, setSelectedStoreId] = useState('');
+    const storeQuery = isChainManager && selectedStoreId ? `?store=${selectedStoreId}` : '';
+    const { data, isLoading: loading, mutate: reload } = useApi<ShipmentRecord[]>(`/shipments/${storeQuery}`);
     const orders = data ?? [];
     const [updatingId, setUpdatingId] = useState<number | null>(null);
     const [sweeping, setSweeping] = useState(false);
@@ -38,10 +46,22 @@ const ComponentsInventoryPurchaseOrders = () => {
         <div className="panel">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-xl">{t('purchase_orders')}</h2>
-                <button type="button" className="btn btn-outline-primary btn-sm gap-2" onClick={checkOverdue} disabled={sweeping}>
-                    <IconRefresh className="h-4 w-4" />
-                    {t('check_overdue')}
-                </button>
+                <div className="flex items-center gap-3">
+                    {isChainManager && (
+                        <select className="form-select w-auto" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)}>
+                            <option value="">{t('all_stores')}</option>
+                            {(stores ?? []).map((s) => (
+                                <option key={s.store_id} value={s.store_id}>
+                                    {s.store_name}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    <button type="button" className="btn btn-outline-primary btn-sm gap-2" onClick={checkOverdue} disabled={sweeping}>
+                        <IconRefresh className="h-4 w-4" />
+                        {t('check_overdue')}
+                    </button>
+                </div>
             </div>
 
             <div className="table-responsive">
@@ -49,6 +69,7 @@ const ComponentsInventoryPurchaseOrders = () => {
                     <thead>
                         <tr>
                             <th>{t('order_code')}</th>
+                            <th>{t('branch')}</th>
                             <th>{t('supplier')}</th>
                             <th>{t('order_date')}</th>
                             <th>{t('expected_delivery_date')}</th>
@@ -60,14 +81,14 @@ const ComponentsInventoryPurchaseOrders = () => {
                     <tbody>
                         {loading && (
                             <tr>
-                                <td colSpan={7} className="!text-center font-semibold text-white-dark">
+                                <td colSpan={8} className="!text-center font-semibold text-white-dark">
                                     {t('loading')}
                                 </td>
                             </tr>
                         )}
                         {!loading && orders.length === 0 && (
                             <tr>
-                                <td colSpan={7} className="!text-center font-semibold text-white-dark">
+                                <td colSpan={8} className="!text-center font-semibold text-white-dark">
                                     {t('no_purchase_orders_found')}
                                 </td>
                             </tr>
@@ -75,6 +96,7 @@ const ComponentsInventoryPurchaseOrders = () => {
                         {orders.map((po) => (
                             <tr key={po.po_id}>
                                 <td className="font-semibold">#{po.po_id}</td>
+                                <td>{po.store_name ?? '—'}</td>
                                 <td>{po.supplier_name}</td>
                                 <td>{po.order_date}</td>
                                 <td>{po.expected_delivery_date ?? '—'}</td>

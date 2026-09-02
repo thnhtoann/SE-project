@@ -91,8 +91,9 @@ class RevenueTrendApiTests(APITestCase):
 
 
 class RevenueTrendExpenseTests(APITestCase):
-    """PurchaseOrder has no store FK, so expense_total is always chain-wide -- unlike
-    total/order_count, it doesn't change when ?store= is passed."""
+    """expense_total follows the same `store` param as total/order_count. A PO with
+    store=None (a historical row from before PO-per-branch existed) only ever shows
+    up in the chain-wide (no ?store=) total, never in a store-filtered one."""
 
     def setUp(self):
         self.client = APIClient()
@@ -102,29 +103,32 @@ class RevenueTrendExpenseTests(APITestCase):
         )
         self.client.force_authenticate(user=self.chain_manager)
 
+        self.store_a = Store.objects.create(store_name='Store A', location='HCMC')
+        self.store_b = Store.objects.create(store_name='Store B', location='Hanoi')
         supplier = Supplier.objects.create(supplier_name='ACME Foods', contact_phone='0900000000')
         category = Category.objects.create(category_name='Snacks')
         product = Product.objects.create(barcode='PO-1', product_name='Chips', base_price='10000.00', min_threshold=5, category=category)
 
         self.today = timezone.localdate()
 
-        def make_po(days_ago, qty, unit_cost):
-            po = PurchaseOrder.objects.create(supplier=supplier, order_date=self.today - timedelta(days=days_ago))
+        def make_po(store, days_ago, qty, unit_cost):
+            po = PurchaseOrder.objects.create(supplier=supplier, store=store, order_date=self.today - timedelta(days=days_ago))
             PurchaseOrderDetail.objects.create(po=po, product=product, order_qty=qty, unit_cost=Decimal(unit_cost))
 
-        make_po(0, 10, '1000.00')  # 10,000 today
-        make_po(3, 5, '2000.00')  # 10,000 three days ago
-        make_po(35, 100, '1.00')  # outside the week/month window
+        make_po(self.store_a, 0, 10, '1000.00')  # Store A: 10,000 today
+        make_po(self.store_b, 0, 5, '2000.00')  # Store B: 10,000 today -- must not leak into Store A's total
+        make_po(None, 0, 1, '500.00')  # legacy PO with no store: only counts chain-wide
+        make_po(self.store_a, 35, 100, '1.00')  # outside the week/month window
 
-    def test_week_period_expense_total_today(self):
+    def test_week_period_chain_wide_expense_total_today(self):
         res = self.client.get(reverse('revenue-trend-report'), {'period': 'week'})
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
         today_point = res.data['points'][-1]
-        self.assertEqual(Decimal(today_point['expense_total']), Decimal('10000.00'))
+        # 10,000 (Store A) + 10,000 (Store B) + 500 (legacy, no store).
+        self.assertEqual(Decimal(today_point['expense_total']), Decimal('20500.00'))
 
-    def test_week_period_expense_total_ignores_store_param(self):
-        store = Store.objects.create(store_name='Store A', location='HCMC')
-        res = self.client.get(reverse('revenue-trend-report'), {'period': 'week', 'store': store.store_id})
+    def test_week_period_expense_total_filtered_by_store(self):
+        res = self.client.get(reverse('revenue-trend-report'), {'period': 'week', 'store': self.store_a.store_id})
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
         today_point = res.data['points'][-1]
         self.assertEqual(Decimal(today_point['expense_total']), Decimal('10000.00'))

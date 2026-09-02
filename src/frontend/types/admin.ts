@@ -98,8 +98,9 @@ export interface ShiftEodReport {
 }
 
 // Response shape of GET /reports/revenue-trend/ (core/views.py RevenueTrendView).
-// expense_total is always chain-wide (PurchaseOrder has no store to scope it by),
-// unlike total/order_count which follow the `store` query param.
+// expense_total follows the same `store` query param as total/order_count, except
+// for purchase orders created before PO-per-branch existed (store=None), which only
+// ever show up in the chain-wide (no ?store=) total.
 export interface RevenueTrendPoint {
     label: string;
     date: string;
@@ -372,6 +373,8 @@ export interface ShipmentRecord {
     supplier: number;
     supplier_name: string;
     contact_phone: string;
+    store: number | null;
+    store_name: string | null;
     order_date: string;
     expected_delivery_date: string | null;
     status: 'Preparing' | 'Delivered' | 'Delayed';

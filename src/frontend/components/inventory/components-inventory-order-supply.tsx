@@ -13,9 +13,11 @@ import { getStockStatus, getTotalQuantity, stockStatusBadgeClass, stockStatusKey
 import { fetchProductCatalog } from '@/lib/inventory-assemble';
 import { useApi } from '@/lib/hooks/use-api';
 import ComponentsInventoryPurchaseOrders from './components-inventory-purchase-orders';
-import { Product, Supplier } from '@/types/admin';
+import { Product, StoreRecord, Supplier } from '@/types/admin';
+import { IRootState } from '@/store';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 import useSWR from 'swr';
 
 type OrderSupplyTab = 'create' | 'orders';
@@ -37,16 +39,27 @@ const ComponentsInventoryOrderSupply = () => {
     const { t } = getTranslation();
     const [tab, setTab] = useState<OrderSupplyTab>('create');
 
+    const role = useSelector((state: IRootState) => state.session.role);
+    const isChainManager = role === 'Chain Manager' || role === 'Admin';
+    const sessionStoreId = useSelector((state: IRootState) => state.session.storeId);
+
     const { data: suppliers } = useApi<Supplier[]>('/suppliers/');
+    const { data: stores } = useApi<StoreRecord[]>('/stores/');
     const { data: catalog, isLoading: catalogLoading } = useSWR('product-catalog', fetchProductCatalog);
     const products = useMemo(() => catalog?.products ?? [], [catalog]);
 
     const [supplierId, setSupplierId] = useState('');
+    const [storeId, setStoreId] = useState('');
     const [expectedDate, setExpectedDate] = useState('');
     const [items, setItems] = useState<LineItem[]>(emptyItems);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
     const [submitting, setSubmitting] = useState(false);
+
+    // Store Manager always orders for their own branch; only a Chain Manager picks one.
+    useEffect(() => {
+        if (!isChainManager && sessionStoreId) setStoreId(String(sessionStoreId));
+    }, [isChainManager, sessionStoreId]);
 
     const supplier = (suppliers ?? []).find((s) => s.supplier_id === Number(supplierId));
     // core.Product has no supplier link, so every product is orderable from every supplier.
@@ -97,8 +110,13 @@ const ComponentsInventoryOrderSupply = () => {
         { lineCount: 0, quantity: 0, subtotal: 0 },
     );
 
+    // Chain Manager's branch choice resets each time (they might order for a different
+    // branch next); Store Manager stays locked to their own.
+    const resetStoreId = () => setStoreId(isChainManager ? '' : sessionStoreId ? String(sessionStoreId) : '');
+
     const resetOrder = () => {
         setSupplierId('');
+        resetStoreId();
         setExpectedDate('');
         setItems(emptyItems);
         setError('');
@@ -110,6 +128,7 @@ const ComponentsInventoryOrderSupply = () => {
         setError('');
 
         if (!supplierId) return setError(t('error_select_supplier'));
+        if (!storeId) return setError(t('error_select_store'));
         const validItems = items.filter((i) => i.productId);
         if (validItems.length === 0) return setError(t('error_add_at_least_one_item'));
         if (validItems.some((i) => !i.quantity || Number(i.quantity) <= 0)) return setError(t('error_line_item_incomplete'));
@@ -120,6 +139,7 @@ const ComponentsInventoryOrderSupply = () => {
                 method: 'POST',
                 body: {
                     supplier: Number(supplierId),
+                    store: Number(storeId),
                     order_date: today(),
                     expected_delivery_date: expectedDate || null,
                     details: validItems.map((i) => ({
@@ -134,6 +154,7 @@ const ComponentsInventoryOrderSupply = () => {
                 `${t('order_sent_prefix')} ${supplier?.supplier_name ?? ''} — #${po.po_id}, ${totals.lineCount} ${t('items_lowercase')}, ${totals.quantity} ${t('units')}, ${t('total')} ${currency(totals.subtotal)}.`,
             );
             setSupplierId('');
+            resetStoreId();
             setExpectedDate('');
             setItems(emptyItems);
         } catch (err) {
@@ -206,7 +227,28 @@ const ComponentsInventoryOrderSupply = () => {
                             <h2 className="text-xl">{t('new_supply_order')}</h2>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                            <div>
+                                <label htmlFor="storeId">{t('store')}</label>
+                                {isChainManager ? (
+                                    <select id="storeId" className="form-select" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+                                        <option value="">{t('select_store')}</option>
+                                        {(stores ?? []).map((s) => (
+                                            <option key={s.store_id} value={s.store_id}>
+                                                {s.store_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        id="storeId"
+                                        type="text"
+                                        className="form-input"
+                                        value={(stores ?? []).find((s) => s.store_id === Number(storeId))?.store_name ?? ''}
+                                        disabled
+                                    />
+                                )}
+                            </div>
                             <div>
                                 <label htmlFor="supplierId">{t('supplier')}</label>
                                 <select id="supplierId" className="form-select" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>

@@ -159,6 +159,9 @@ class PurchaseOrder(models.Model):
 
     po_id = models.AutoField(primary_key=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.PROTECT)
+    # Nullable for historical rows created before PO-per-branch existed; new orders
+    # always set this (enforced in PurchaseOrderSerializer/perform_create).
+    store = models.ForeignKey('Store', on_delete=models.PROTECT, null=True, blank=True)
     order_date = models.DateField()
     expected_delivery_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=STATUS_PREPARING)

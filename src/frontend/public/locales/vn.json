@@ -212,6 +212,7 @@
     "email": "Email",
     "phone": "Số điện thoại",
     "select_supplier": "Chọn nhà cung cấp",
+    "select_store": "Chọn chi nhánh",
     "quantity": "Số lượng",
     "quantity_on_hand": "Số lượng tồn kho",
     "barcode": "Mã vạch",
@@ -289,6 +290,7 @@
     "order_sent_prefix": "Đã gửi đơn hàng đến",
     "items_lowercase": "mặt hàng",
     "error_select_supplier": "Vui lòng chọn nhà cung cấp trước.",
+    "error_select_store": "Vui lòng chọn chi nhánh trước.",
     "error_add_at_least_one_item": "Thêm ít nhất một mặt hàng vào đơn.",
     "error_line_item_incomplete": "Mỗi mặt hàng cần có sản phẩm và số lượng lớn hơn 0.",
 
