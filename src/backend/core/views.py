@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Sum
-from django.db.models.functions import TruncHour, TruncDate, TruncMonth
+from django.db.models.functions import TruncHour, TruncDate, TruncMonth, ExtractHour
 # Import Models & Serializers
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
@@ -1161,6 +1161,21 @@ class RevenueTrendView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+def _period_range_start(period, today):
+    """Start date of `period` ending today: last 7 days for 'week', current
+    calendar month for 'month', current + prior 2 calendar months for
+    'quarter'. Shared by every report view that only needs a cutoff date
+    (not day/month buckets like RevenueTrendView)."""
+    if period == 'quarter':
+        cursor = today.replace(day=1)
+        for _ in range(2):
+            cursor = (cursor - timedelta(days=1)).replace(day=1)
+        return cursor
+    if period == 'week':
+        return today - timedelta(days=6)
+    return today.replace(day=1)
+
+
 class SalesByCategoryView(APIView):
     """Revenue by product category for the Store dashboard's "Sale by Category" panel,
     replacing the old funnel mock. Same store/period convention as RevenueTrendView."""
@@ -1172,16 +1187,7 @@ class SalesByCategoryView(APIView):
             return Response({"detail": "period must be one of: week, month, quarter."}, status=status.HTTP_400_BAD_REQUEST)
 
         store_id = request.query_params.get('store')
-        today = timezone.localdate()
-        if period == 'quarter':
-            cursor = today.replace(day=1)
-            for _ in range(2):
-                cursor = (cursor - timedelta(days=1)).replace(day=1)
-            range_start = cursor
-        elif period == 'week':
-            range_start = today - timedelta(days=6)
-        else:
-            range_start = today.replace(day=1)
+        range_start = _period_range_start(period, timezone.localdate())
 
         queryset = OrderDetail.objects.filter(order__status__iexact='Completed', order__order_date__date__gte=range_start)
         if store_id:
@@ -1199,6 +1205,76 @@ class SalesByCategoryView(APIView):
             "categories": [
                 {"category": row['product__category__category_name'] or 'Uncategorized', "total": str(row['total'])}
                 for row in rows
+            ],
+        }, status=status.HTTP_200_OK)
+
+
+class RevenueByChannelView(APIView):
+    """Revenue grouped by sales channel (Order.order_type: POS, GrabMart, ShopeeFood,
+    BeMart, Lazada) for the Store dashboard's "Revenue Sources" panel, replacing the
+    old CHANNEL_REVENUE mock. Same store/period convention as RevenueTrendView."""
+    permission_classes = [IsChainManager | IsStoreManager]
+
+    def get(self, request):
+        period = request.query_params.get('period', 'week')
+        if period not in ('week', 'month', 'quarter'):
+            return Response({"detail": "period must be one of: week, month, quarter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        store_id = request.query_params.get('store')
+        range_start = _period_range_start(period, timezone.localdate())
+
+        queryset = Order.objects.filter(status__iexact='Completed', order_date__date__gte=range_start)
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+
+        rows = queryset.values('order_type').annotate(total=Sum('total_amount')).order_by('-total')
+
+        return Response({
+            "period": period,
+            "store": int(store_id) if store_id else None,
+            "channels": [{"channel": row['order_type'], "total": str(row['total'])} for row in rows],
+        }, status=status.HTTP_200_OK)
+
+
+class PeakHoursView(APIView):
+    """Order count by hour-of-day, current period vs. the immediately preceding
+    equivalent period, for the Store dashboard's "Peak Hours" panel, replacing the
+    old PEAK_HOURS/PEAK_HOURS_PREVIOUS_FACTOR mock. Same store/period convention as
+    RevenueTrendView. There's no foot-traffic tracking in this system, so "visits"
+    is approximated as completed order count."""
+    permission_classes = [IsChainManager | IsStoreManager]
+
+    def get(self, request):
+        period = request.query_params.get('period', 'week')
+        if period not in ('week', 'month', 'quarter'):
+            return Response({"detail": "period must be one of: week, month, quarter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        store_id = request.query_params.get('store')
+        today = timezone.localdate()
+        range_start = _period_range_start(period, today)
+        window = (today - range_start).days + 1
+        previous_start = range_start - timedelta(days=window)
+
+        queryset = Order.objects.filter(status__iexact='Completed', order_date__date__gte=previous_start)
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+
+        rows = (
+            queryset.annotate(hour=ExtractHour('order_date'), is_current=models.Case(
+                models.When(order_date__date__gte=range_start, then=True), default=False, output_field=models.BooleanField(),
+            ))
+            .values('hour', 'is_current')
+            .annotate(n=models.Count('order_id'))
+        )
+        current_by_hour = {row['hour']: row['n'] for row in rows if row['is_current']}
+        previous_by_hour = {row['hour']: row['n'] for row in rows if not row['is_current']}
+
+        return Response({
+            "period": period,
+            "store": int(store_id) if store_id else None,
+            "points": [
+                {"hour": h, "current": current_by_hour.get(h, 0), "previous": previous_by_hour.get(h, 0)}
+                for h in range(24)
             ],
         }, status=status.HTTP_200_OK)
 

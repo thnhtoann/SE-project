@@ -13,9 +13,9 @@ const defaultBadgeClass = 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]';
 // Stable reference (vs. `?? []`) so useMemo hooks below don't recompute every render while loading.
 const EMPTY_ORDERS: OrderRecord[] = [];
 
-// Fixed colors for the channels this project already knows about (matches
-// CHANNEL_REVENUE in mock-dashboards.ts); anything else falls back to
-// defaultBadgeClass rather than needing a code change to show up.
+// Fixed colors for the channels this project already knows about (the values
+// Order.order_type takes: POS from checkout, the rest from omnichannel webhooks);
+// anything else falls back to defaultBadgeClass rather than needing a code change to show up.
 const channelBadgeClass: Record<string, string> = {
     POS: 'bg-primary-light text-primary dark:bg-primary dark:text-primary-light',
     Lazada: 'bg-info-light text-info dark:bg-info dark:text-info-light',

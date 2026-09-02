@@ -127,6 +127,33 @@ export interface SalesByCategoryResponse {
     categories: SalesByCategoryRow[];
 }
 
+// Response shape of GET /reports/revenue-by-channel/ (core/views.py RevenueByChannelView).
+export interface RevenueByChannelRow {
+    channel: string;
+    total: string;
+}
+
+export interface RevenueByChannelResponse {
+    period: 'week' | 'month' | 'quarter';
+    store: number | null;
+    channels: RevenueByChannelRow[];
+}
+
+// Response shape of GET /reports/peak-hours/ (core/views.py PeakHoursView). "current"/
+// "previous" are completed-order counts for this period vs. the immediately preceding
+// equivalent-length period (there's no real foot-traffic tracking to call these "visits").
+export interface PeakHoursPoint {
+    hour: number;
+    current: number;
+    previous: number;
+}
+
+export interface PeakHoursResponse {
+    period: 'week' | 'month' | 'quarter';
+    store: number | null;
+    points: PeakHoursPoint[];
+}
+
 // Mirrors core.Category (fields='__all__').
 export interface CategoryRecord {
     category_id: number;
@@ -304,11 +331,6 @@ export interface RecentTransaction {
     date: string;
 }
 
-export interface ChannelRevenue {
-    channel: string;
-    amount: number;
-}
-
 export interface Branch {
     id: number;
     name: string;
@@ -328,11 +350,6 @@ export interface TopCustomer {
     name: string;
     tier: MembershipTier;
     totalSpent: number;
-    visits: number;
-}
-
-export interface PeakHourPoint {
-    hour: string;
     visits: number;
 }
 

@@ -4,10 +4,9 @@ import IconDollarSignCircle from '@/components/icon/icon-dollar-sign-circle';
 import IconUsers from '@/components/icon/icon-users';
 import IconUsersGroup from '@/components/icon/icon-users-group';
 import PeriodSelector from '@/components/dashboard/period-selector';
-import { COMPANY_KPIS } from '@/data/mock-dashboards';
 import { IRootState } from '@/store';
 import { useApi } from '@/lib/hooks/use-api';
-import { OrderRecord, ReportPeriod, RevenueTrendResponse } from '@/types/admin';
+import { CustomerRecord, OrderRecord, ProductApiRecord, ReportPeriod, RevenueTrendResponse, StaffRecord } from '@/types/admin';
 import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
@@ -44,6 +43,12 @@ const ComponentsDashboardAnalytics = () => {
     const { data: trend } = useApi<RevenueTrendResponse>(`/reports/revenue-trend/?period=${period}`);
     const { data: salesPerformance } = useApi<{ best_sellers: TopProductRow[] }>('/reports/sales-performance/?limit=5');
     const { data: orders } = useApi<OrderRecord[]>('/orders/');
+    const { data: products } = useApi<ProductApiRecord[]>('/products/');
+    // /staff/ is store-scoped server-side for a Store Manager (chain-wide for Chain
+    // Manager/Admin); /customers/ has no store scoping at all yet (CustomerViewSet
+    // has no get_queryset override) so total_customers is always chain-wide.
+    const { data: staff } = useApi<StaffRecord[]>('/staff/');
+    const { data: customers } = useApi<CustomerRecord[]>('/customers/');
 
     useEffect(() => {
         setIsMounted(true);
@@ -97,8 +102,6 @@ const ComponentsDashboardAnalytics = () => {
                 ) : (
                     <>
                         <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-                            {/* total_skus/total_staff/total_customers have no supporting backend
-                                aggregate endpoint -- kept as illustrative mock figures. */}
                             <div className="panel">
                                 <div className="flex items-center">
                                     <div className="grid h-11 w-11 shrink-0 place-content-center rounded-md bg-primary-light text-primary dark:bg-primary dark:text-primary-light">
@@ -106,7 +109,7 @@ const ComponentsDashboardAnalytics = () => {
                                     </div>
                                     <div className="ltr:ml-3 rtl:mr-3">
                                         <h6 className="text-[13px] text-white-dark">{t('total_skus')}</h6>
-                                        <p className="text-xl font-semibold dark:text-white-light">{COMPANY_KPIS.totalSkus.toLocaleString('en-US')}</p>
+                                        <p className="text-xl font-semibold dark:text-white-light">{(products ?? []).length.toLocaleString('en-US')}</p>
                                     </div>
                                 </div>
                             </div>
@@ -117,7 +120,7 @@ const ComponentsDashboardAnalytics = () => {
                                     </div>
                                     <div className="ltr:ml-3 rtl:mr-3">
                                         <h6 className="text-[13px] text-white-dark">{t('total_staff')}</h6>
-                                        <p className="text-xl font-semibold dark:text-white-light">{COMPANY_KPIS.totalStaff}</p>
+                                        <p className="text-xl font-semibold dark:text-white-light">{(staff ?? []).length}</p>
                                     </div>
                                 </div>
                             </div>
@@ -128,7 +131,7 @@ const ComponentsDashboardAnalytics = () => {
                                     </div>
                                     <div className="ltr:ml-3 rtl:mr-3">
                                         <h6 className="text-[13px] text-white-dark">{t('total_customers')}</h6>
-                                        <p className="text-xl font-semibold dark:text-white-light">{COMPANY_KPIS.totalCustomers.toLocaleString('en-US')}</p>
+                                        <p className="text-xl font-semibold dark:text-white-light">{(customers ?? []).length.toLocaleString('en-US')}</p>
                                     </div>
                                 </div>
                             </div>

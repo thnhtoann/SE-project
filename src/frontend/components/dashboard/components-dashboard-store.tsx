@@ -5,21 +5,19 @@ import IconUsersGroup from '@/components/icon/icon-users-group';
 import IconTrendingUp from '@/components/icon/icon-trending-up';
 import PeriodSelector from '@/components/dashboard/period-selector';
 import TierBadge from '@/components/customers/tier-badge';
-import {
-    BRANCH_SHARE,
-    CHANNEL_REVENUE,
-    DEVICE_VISITS,
-    MEMBERSHIP_TIERS,
-    PEAK_HOURS,
-    PEAK_HOURS_PREVIOUS_FACTOR,
-    PERIOD_MULTIPLIER,
-    TOP_CUSTOMERS,
-    VIP_CUSTOMER,
-} from '@/data/mock-dashboards';
+import { BRANCH_SHARE, DEVICE_VISITS, MEMBERSHIP_TIERS, PERIOD_MULTIPLIER, TOP_CUSTOMERS, VIP_CUSTOMER } from '@/data/mock-dashboards';
 import { IRootState } from '@/store';
 import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
-import { ReportPeriod, RevenueTrendResponse, SalesByCategoryResponse, StaffRecord, StoreRecord } from '@/types/admin';
+import {
+    PeakHoursResponse,
+    ReportPeriod,
+    RevenueByChannelResponse,
+    RevenueTrendResponse,
+    SalesByCategoryResponse,
+    StaffRecord,
+    StoreRecord,
+} from '@/types/admin';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
@@ -59,6 +57,8 @@ const ComponentsDashboardStore = () => {
 
     const { data: trend } = useApi<RevenueTrendResponse>(branchId ? `/reports/revenue-trend/?period=${period}&store=${branchId}` : null);
     const { data: categoryData } = useApi<SalesByCategoryResponse>(branchId ? `/reports/sales-by-category/?period=${period}&store=${branchId}` : null);
+    const { data: channelData } = useApi<RevenueByChannelResponse>(branchId ? `/reports/revenue-by-channel/?period=${period}&store=${branchId}` : null);
+    const { data: peakHoursData } = useApi<PeakHoursResponse>(branchId ? `/reports/peak-hours/?period=${period}&store=${branchId}` : null);
     // Chain-Manager-only endpoint (see note above) -- degrades to an empty list for a
     // Store Manager rather than breaking the page.
     const { data: staffAll } = useApi<StaffRecord[]>('/staff/');
@@ -74,9 +74,8 @@ const ComponentsDashboardStore = () => {
     const factor = PERIOD_MULTIPLIER[period];
     const branch = branches.find((b) => b.store_id === branchId) ?? null;
     const share = branch ? (BRANCH_SHARE[branch.store_id] ?? 1) : 1;
-    // Customer figures are seeded chain-wide mock data (no Customer model in the backend),
-    // scaled by both axes to keep every mock panel below reflecting the same selection.
-    const customerFactor = factor * share;
+    // Customers tab figures below are still chain-wide mock data scaled by branch
+    // share -- out of scope for this pass (skipped per product decision).
     const branchRevenue = (trend?.points ?? []).reduce((sum, p) => sum + Number(p.total), 0);
 
     const branchMembers = MEMBERSHIP_TIERS.map((t) => Math.round(t.count * share));
@@ -100,16 +99,19 @@ const ComponentsDashboardStore = () => {
         },
     };
 
+    const channels = channelData?.channels ?? [];
+    const channelTotal = channels.reduce((sum, c) => sum + Number(c.total), 0);
+
     const revenueSourcesChart: any = {
-        series: CHANNEL_REVENUE.map((c) => Math.round((c.amount * factor * share) / 1_000_000)),
+        series: channels.map((c) => Math.round(Number(c.total))),
         options: {
             chart: { type: 'donut', height: 400, fontFamily: 'Nunito, sans-serif' },
             dataLabels: { enabled: false },
             stroke: { show: true, width: 12, colors: [isDark ? '#0e1726' : '#fff'] },
             colors: ['#4361ee', '#805dca', '#00ab55', '#e2a03f', '#e7515a', '#2196f3', '#00c1d4'],
-            labels: CHANNEL_REVENUE.map((c) => c.channel),
+            labels: channels.map((c) => c.channel),
             legend: { position: 'bottom', horizontalAlign: 'center', fontSize: '13px', height: 70, offsetY: 10 },
-            tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => `₫${val}M` } },
+            tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => currency(val) } },
             plotOptions: {
                 pie: {
                     donut: {
@@ -117,13 +119,13 @@ const ComponentsDashboardStore = () => {
                         labels: {
                             show: true,
                             name: { fontSize: '20px', offsetY: -10 },
-                            value: { fontSize: '20px', color: isDark ? '#bfc9d4' : undefined, offsetY: 12, formatter: (val: any) => `₫${val}M` },
+                            value: { fontSize: '20px', color: isDark ? '#bfc9d4' : undefined, offsetY: 12, formatter: (val: any) => currency(Number(val)) },
                             total: {
                                 show: true,
                                 label: t('total'),
                                 color: '#888ea8',
                                 fontSize: '20px',
-                                formatter: (w: any) => `₫${w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0)}M`,
+                                formatter: () => currency(channelTotal),
                             },
                         },
                     },
@@ -132,10 +134,15 @@ const ComponentsDashboardStore = () => {
         },
     };
 
+    // Business-hours slice of the 24-hour response; "previous"/"current" already come
+    // pre-bucketed by hour from the backend, no client-side scaling needed.
+    const peakHoursPoints = (peakHoursData?.points ?? []).filter((p) => p.hour >= 7 && p.hour <= 22);
+    const formatHour = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'am' : 'pm'}`;
+
     const peakHoursChart: any = {
         series: [
-            { name: t('previous_period'), data: PEAK_HOURS.map((p) => Math.round(p.visits * customerFactor * PEAK_HOURS_PREVIOUS_FACTOR)) },
-            { name: t('current_period'), data: PEAK_HOURS.map((p) => Math.round(p.visits * customerFactor)) },
+            { name: t('previous_period'), data: peakHoursPoints.map((p) => p.previous) },
+            { name: t('current_period'), data: peakHoursPoints.map((p) => p.current) },
         ],
         options: {
             chart: { type: 'line', height: 360, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
@@ -144,7 +151,7 @@ const ComponentsDashboardStore = () => {
             markers: { size: 4, strokeWidth: 0 },
             dataLabels: { enabled: false },
             legend: { show: true, position: 'top', horizontalAlign: 'right', fontSize: '13px' },
-            xaxis: { categories: PEAK_HOURS.map((p) => p.hour) },
+            xaxis: { categories: peakHoursPoints.map((p) => formatHour(p.hour)) },
             grid: { borderColor: isDark ? '#191e3a' : '#e0e6ed' },
             tooltip: { theme: isDark ? 'dark' : 'light' },
         },
