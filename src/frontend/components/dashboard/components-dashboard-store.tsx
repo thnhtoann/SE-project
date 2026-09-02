@@ -77,10 +77,14 @@ const ComponentsDashboardStore = () => {
     // Customers tab figures below are still chain-wide mock data scaled by branch
     // share -- out of scope for this pass (skipped per product decision).
     const branchRevenue = (trend?.points ?? []).reduce((sum, p) => sum + Number(p.total), 0);
+    const branchExpense = (trend?.points ?? []).reduce((sum, p) => sum + Number(p.expense_total), 0);
+    const branchProfit = branchRevenue - branchExpense;
     const previousBranchRevenue = Number(trend?.previous_total ?? 0);
-    // No comparison shown when the prior period had zero revenue -- a percentage
-    // against a zero base is undefined/misleading, not "infinite growth".
-    const revenueChangePct = previousBranchRevenue > 0 ? ((branchRevenue - previousBranchRevenue) / previousBranchRevenue) * 100 : null;
+    const previousBranchExpense = Number(trend?.previous_expense_total ?? 0);
+    const previousBranchProfit = previousBranchRevenue - previousBranchExpense;
+    // No comparison shown when the prior period had zero (or negative) profit -- a
+    // percentage against a non-positive base is undefined/misleading, not "infinite growth".
+    const revenueChangePct = previousBranchProfit > 0 ? ((branchProfit - previousBranchProfit) / previousBranchProfit) * 100 : null;
 
     const branchMembers = MEMBERSHIP_TIERS.map((t) => Math.round(t.count * share));
 
@@ -297,8 +301,11 @@ const ComponentsDashboardStore = () => {
                     <>
                         <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
                             <div className="panel bg-gradient-to-r from-cyan-500 to-cyan-400 text-white">
-                                <h6 className="text-[13px] opacity-90">{t('branch_revenue')}</h6>
-                                <p className="mt-2 text-2xl font-semibold">{currency(branchRevenue)}</p>
+                                <h6 className="text-[13px] opacity-90">{t('branch_profit')}</h6>
+                                <p className="mt-2 text-2xl font-semibold">{currency(branchProfit)}</p>
+                                <p className="mt-1 text-xs opacity-75">
+                                    {currency(branchRevenue)} {t('revenue')} − {currency(branchExpense)} {t('expenses')}
+                                </p>
                                 {revenueChangePct !== null && (
                                     <p className={`mt-1 flex items-center gap-1 text-xs font-semibold ${revenueChangePct >= 0 ? 'text-[#00ab55]' : 'text-[#e7515a]'}`}>
                                         <IconTrendingUp className={`h-3.5 w-3.5 ${revenueChangePct >= 0 ? '' : 'rotate-180'}`} />

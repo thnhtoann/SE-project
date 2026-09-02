@@ -1195,11 +1195,17 @@ class RevenueTrendView(APIView):
             order_date__date__gte=prev_start, order_date__date__lte=prev_end
         ).aggregate(total=Sum('total_amount'))['total'] or 0
 
+        prev_expense_qs = PurchaseOrderDetail.objects.filter(po__order_date__gte=prev_start, po__order_date__lte=prev_end)
+        if store_id:
+            prev_expense_qs = prev_expense_qs.filter(po__store_id=store_id)
+        previous_expense_total = prev_expense_qs.aggregate(total=Sum(PO_LINE_COST))['total'] or 0
+
         return Response({
             "period": period,
             "store": int(store_id) if store_id else None,
             "points": points,
             "previous_total": str(previous_total),
+            "previous_expense_total": str(previous_expense_total),
         }, status=status.HTTP_200_OK)
 
 

@@ -114,6 +114,7 @@ export interface RevenueTrendResponse {
     store: number | null;
     points: RevenueTrendPoint[];
     previous_total: string;
+    previous_expense_total: string;
 }
 
 // Response shape of GET /reports/sales-by-category/ (core/views.py SalesByCategoryView).
