@@ -327,7 +327,12 @@ const ComponentsDashboardStore = () => {
                             </div>
                             <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_by_category')}</h5>
-                                {isMounted && <ReactApexChart series={categoryChart.series} options={categoryChart.options} type="radialBar" height={360} />}
+                                {/* ApexCharts' radialBar center-label formatter can get stuck on a stale
+                                total when the chart is updated in place -- force a remount on period/branch
+                                change instead of relying on updateOptions(). */}
+                                {isMounted && (
+                                    <ReactApexChart key={`${branchId}-${period}`} series={categoryChart.series} options={categoryChart.options} type="radialBar" height={360} />
+                                )}
                             </div>
                         </div>
 
