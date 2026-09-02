@@ -36,8 +36,10 @@ import {
     StoreRecord,
 } from '@/types/admin';
 import { assembleProducts } from '@/lib/inventory-assemble';
+import { IRootState } from '@/store';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 type ExpiryFilter = 'all' | ExpiryStatus;
 
@@ -49,7 +51,12 @@ const riskBadgeClass: Record<ForecastProductRow['stockout_risk'], string> = {
 
 const ComponentsInventoryList = () => {
     const { t } = getTranslation();
+    const role = useSelector((state: IRootState) => state.session.role);
+    const isChainManager = role === 'Chain Manager' || role === 'Admin';
+
     const [items, setItems] = useState<Product[]>([]);
+    const [stores, setStores] = useState<StoreRecord[]>([]);
+    const [selectedStoreId, setSelectedStoreId] = useState('');
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
@@ -62,15 +69,21 @@ const ComponentsInventoryList = () => {
     const [forecastByProduct, setForecastByProduct] = useState<Map<number, ForecastProductRow>>(new Map());
 
     useEffect(() => {
+        // Store Manager/Cashier are locked server-side to their own store no matter
+        // what's requested here; the ?store= param only ever does something for a
+        // Chain Manager/Admin using the store picker below.
+        const inventoryPath = isChainManager && selectedStoreId ? `/store-inventories/?store=${selectedStoreId}` : '/store-inventories/';
+
         Promise.all([
             apiFetch<ProductApiRecord[]>('/products/'),
             apiFetch<CategoryRecord[]>('/categories/'),
             apiFetch<BatchApiRecord[]>('/batches/'),
-            apiFetch<StoreInventoryApiRecord[]>('/store-inventories/'),
+            apiFetch<StoreInventoryApiRecord[]>(inventoryPath),
             apiFetch<StoreRecord[]>('/stores/'),
         ])
-            .then(([products, categories, batches, inventories, stores]) => {
-                setItems(assembleProducts(products, categories, batches, inventories, stores));
+            .then(([products, categories, batches, inventories, fetchedStores]) => {
+                setItems(assembleProducts(products, categories, batches, inventories, fetchedStores));
+                setStores(fetchedStores);
             })
             .catch(() => setItems([]))
             .finally(() => setLoading(false));
@@ -82,7 +95,7 @@ const ComponentsInventoryList = () => {
         apiFetch<ForecastResponse>('/procurement/forecast/')
             .then((res) => setForecastByProduct(new Map(res.products.map((p) => [p.product_id, p]))))
             .catch(() => setForecastByProduct(new Map()));
-    }, []);
+    }, [isChainManager, selectedStoreId]);
 
     const resolveAlert = useCallback((alertId: number) => {
         setResolvingAlertId(alertId);
@@ -334,6 +347,16 @@ const ComponentsInventoryList = () => {
                                 <IconPlus />
                                 {t('add_product')}
                             </Link>
+                            {isChainManager && (
+                                <select className="form-select w-auto" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)}>
+                                    <option value="">{t('all_stores')}</option>
+                                    {stores.map((s) => (
+                                        <option key={s.store_id} value={s.store_id}>
+                                            {s.store_name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
                             <select className="form-select w-auto" value={expiryFilter} onChange={(e) => setExpiryFilter(e.target.value as ExpiryFilter)}>
                                 <option value="all">{t('all_expiry_statuses')}</option>
                                 <option value="Expired">{t('expiry_expired')}</option>

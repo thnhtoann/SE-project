@@ -386,6 +386,31 @@ class StoreInventoryViewSet(viewsets.ModelViewSet):
             return [IsCashier()]
         return [(IsStoreManager | IsChainManager)()]
 
+    def get_queryset(self):
+        queryset = StoreInventory.objects.all()
+        user = self.request.user
+        # Chain Manager/Admin can browse any store (optionally narrowed via
+        # ?store=<id>, e.g. for the Inventory page's store picker) or see
+        # everything chain-wide when omitted. Everyone else is locked to
+        # their own assigned store regardless of ?store=, so a Store Manager
+        # or Cashier can never read another store's stock by changing the
+        # query param.
+        if user.role and user.role.role_name in ('Chain Manager', 'Admin'):
+            store_id = self.request.query_params.get('store')
+            if store_id:
+                queryset = queryset.filter(store_id=store_id)
+        else:
+            queryset = queryset.filter(store_id=user.store_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.role and user.role.role_name not in ('Chain Manager', 'Admin'):
+            store = serializer.validated_data.get('store')
+            if store and store.store_id != user.store_id:
+                raise ValidationError({"store": ["You can only manage inventory for your own store."]})
+        serializer.save()
+
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
