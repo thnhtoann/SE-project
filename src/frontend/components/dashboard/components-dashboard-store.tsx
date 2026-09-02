@@ -92,7 +92,7 @@ const ComponentsDashboardStore = () => {
             { name: t('expenses'), data: (trend?.points ?? []).map((p) => Math.round(Number(p.expense_total))) },
         ],
         options: {
-            chart: { type: 'line', height: 300, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
+            chart: { type: 'area', height: 300, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
             dataLabels: { enabled: false },
             stroke: { curve: 'smooth', width: 2 },
             colors: ['#00ab55', '#e7515a'],
@@ -100,6 +100,10 @@ const ComponentsDashboardStore = () => {
             grid: { borderColor: isDark ? '#191e3a' : '#e0e6ed' },
             legend: { show: true, position: 'top', horizontalAlign: 'right', fontSize: '13px' },
             tooltip: { theme: isDark ? 'dark' : 'light' },
+            fill: {
+                type: 'gradient',
+                gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 100] },
+            },
         },
     };
 
@@ -323,7 +327,7 @@ const ComponentsDashboardStore = () => {
                         <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_analytics')}</h5>
-                                {isMounted && <ReactApexChart series={revenueTrendChart.series} options={revenueTrendChart.options} type="line" height={300} />}
+                                {isMounted && <ReactApexChart series={revenueTrendChart.series} options={revenueTrendChart.options} type="area" height={300} />}
                             </div>
                             <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_by_category')}</h5>
