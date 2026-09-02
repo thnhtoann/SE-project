@@ -42,10 +42,13 @@ import { useSelector } from 'react-redux';
 
 type ExpiryFilter = 'all' | ExpiryStatus;
 
-const riskBadgeClass: Record<ForecastProductRow['stockout_risk'], string> = {
-    Low: 'bg-success-light text-success dark:bg-success dark:text-success-light',
-    Medium: 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light',
-    High: 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light',
+// A product with enough stock to clear its min_threshold still shows as "In Stock"
+// unless the demand forecast flags a reorder as needed -- in that case the badge
+// should read as a warning too, since a green "In Stock" would hide the risk.
+const getEffectiveStockStatus = (p: Product, forecast?: ForecastProductRow) => {
+    const status = getStockStatus(p);
+    if (status === 'In Stock' && forecast?.action_required) return 'Low Stock' as const;
+    return status;
 };
 
 const ComponentsInventoryList = () => {
@@ -132,31 +135,28 @@ const ComponentsInventoryList = () => {
                 key: 'stock',
                 header: t('stock_status'),
                 sortable: true,
-                sortValue: (p) => getStockStatus(p),
-                render: (p) => <span className={`badge ${stockStatusBadgeClass[getStockStatus(p)]}`}>{t(stockStatusKey[getStockStatus(p)])}</span>,
-            },
-            {
-                key: 'quantity',
-                header: t('quantity'),
-                sortable: true,
-                align: 'right',
-                sortValue: (p) => getTotalQuantity(p),
+                sortValue: (p) => getEffectiveStockStatus(p, forecastByProduct.get(p.product_id)),
                 render: (p) => {
-                    const quantity = getTotalQuantity(p);
                     const forecast = forecastByProduct.get(p.product_id);
+                    const status = getEffectiveStockStatus(p, forecast);
                     const isLowStock = getStockStatus(p) !== 'In Stock';
                     const hasForecastRisk = forecast?.action_required ?? false;
+                    const badge = <span className={`badge ${stockStatusBadgeClass[status]}`}>{t(stockStatusKey[status])}</span>;
                     if (!isLowStock && !hasForecastRisk) {
-                        return <span>{quantity}</span>;
+                        return badge;
                     }
                     return (
-                        <span className="inline-flex items-center justify-end gap-1.5">
-                            {quantity}
+                        <span className="inline-flex items-center gap-1.5">
+                            {badge}
                             <span className="group/tip relative inline-flex">
                                 <IconInfoCircle className="h-4 w-4 shrink-0 cursor-help text-warning" />
-                                <span className="pointer-events-none absolute right-0 top-full z-10 mt-2 hidden w-64 rounded bg-black/90 p-2 text-left text-xs font-normal normal-case leading-relaxed text-white group-hover/tip:block">
+                                <span className="pointer-events-none absolute left-0 top-full z-10 mt-2 hidden w-64 rounded bg-black/90 p-2 text-left text-xs font-normal normal-case leading-relaxed text-white group-hover/tip:block">
                                     {isLowStock && (
-                                        <div>{t('quantity_alert_low_stock').replace('{quantity}', String(quantity)).replace('{threshold}', String(p.min_threshold))}</div>
+                                        <div>
+                                            {t('quantity_alert_low_stock')
+                                                .replace('{quantity}', String(getTotalQuantity(p)))
+                                                .replace('{threshold}', String(p.min_threshold))}
+                                        </div>
                                     )}
                                     {hasForecastRisk && forecast && (
                                         <div className={isLowStock ? 'mt-1.5 border-t border-white/20 pt-1.5' : ''}>
@@ -170,6 +170,14 @@ const ComponentsInventoryList = () => {
                 },
             },
             {
+                key: 'quantity',
+                header: t('quantity'),
+                sortable: true,
+                align: 'right',
+                sortValue: (p) => getTotalQuantity(p),
+                render: (p) => <span>{getTotalQuantity(p)}</span>,
+            },
+            {
                 key: 'expiry',
                 header: t('nearest_expiry'),
                 sortable: true,
@@ -181,26 +189,6 @@ const ComponentsInventoryList = () => {
                         <div className="flex flex-col gap-1">
                             <span className={`badge w-fit ${expiryStatusBadgeClass[status]}`}>{t(expiryStatusKey[status])}</span>
                             {date && <span className="text-xs text-white-dark">{date}</span>}
-                        </div>
-                    );
-                },
-            },
-            {
-                key: 'restock_risk',
-                header: t('restock_risk'),
-                sortable: true,
-                sortValue: (p) => forecastByProduct.get(p.product_id)?.stockout_risk ?? '',
-                render: (p) => {
-                    const forecast = forecastByProduct.get(p.product_id);
-                    if (!forecast) return <span className="text-white-dark">—</span>;
-                    return (
-                        <div className="flex flex-col gap-1" title={forecast.reasoning}>
-                            <span className={`badge w-fit ${riskBadgeClass[forecast.stockout_risk]}`}>{forecast.stockout_risk}</span>
-                            {forecast.action_required && (
-                                <span className="text-xs text-white-dark">
-                                    {t('reorder')} {forecast.recommended_order_quantity}
-                                </span>
-                            )}
                         </div>
                     );
                 },
