@@ -1,6 +1,5 @@
 'use client';
 import AdminTable, { AdminTableColumn } from '@/components/datatable/admin-table';
-import IconBell from '@/components/icon/icon-bell';
 import IconBox from '@/components/icon/icon-box';
 import IconEdit from '@/components/icon/icon-edit';
 import IconEye from '@/components/icon/icon-eye';
@@ -29,7 +28,6 @@ import {
     ExpiryStatus,
     ForecastProductRow,
     ForecastResponse,
-    InventoryAlertRecord,
     Product,
     ProductApiRecord,
     StoreInventoryApiRecord,
@@ -58,7 +56,6 @@ const ComponentsInventoryList = () => {
     const [selectedStoreId, setSelectedStoreId] = useState('');
     const [search, setSearch] = useState('');
     const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
-    const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
 
     // Store Manager/Cashier are locked server-side to their own store no matter
     // what's requested here; the ?store= param only ever does something for a
@@ -70,10 +67,8 @@ const ComponentsInventoryList = () => {
     const { data: batches } = useApi<BatchApiRecord[]>('/batches/');
     const { data: inventories } = useApi<StoreInventoryApiRecord[]>(inventoryPath);
     const { data: stores } = useApi<StoreRecord[]>('/stores/');
-    // Low-stock alerts and demand-forecast reorder risk (forecasting/procurement apps) --
-    // both Store/Chain-Manager-only, so a Cashier viewing this page degrades gracefully to
-    // no alerts panel / no risk column rather than an error.
-    const { data: alerts, mutate: mutateAlerts } = useApi<InventoryAlertRecord[]>('/low-stock-alerts/?is_resolved=false');
+    // Demand-forecast reorder risk (forecasting/procurement apps) -- Store/Chain-Manager-only,
+    // so a Cashier viewing this page degrades gracefully to no risk indicator rather than an error.
     const { data: forecastResponse } = useApi<ForecastResponse>('/procurement/forecast/');
 
     const loading = !products || !categories || !batches || !inventories || !stores;
@@ -82,18 +77,7 @@ const ComponentsInventoryList = () => {
         [products, categories, batches, inventories, stores],
     );
     const forecastByProduct = useMemo(() => new Map((forecastResponse?.products ?? []).map((p) => [p.product_id, p])), [forecastResponse]);
-    const alertList = alerts ?? [];
     const storeList = stores ?? [];
-
-    const resolveAlert = useCallback(
-        (alertId: number) => {
-            setResolvingAlertId(alertId);
-            apiFetch(`/low-stock-alerts/${alertId}/resolve/`, { method: 'PATCH', body: { is_resolved: true } })
-                .then(() => mutateAlerts((prev) => prev?.filter((a) => a.alert_id !== alertId), { revalidate: false }))
-                .finally(() => setResolvingAlertId(null));
-        },
-        [mutateAlerts],
-    );
 
     const filtered = useMemo(
         () =>
@@ -148,7 +132,40 @@ const ComponentsInventoryList = () => {
                 sortValue: (p) => getStockStatus(p),
                 render: (p) => <span className={`badge ${stockStatusBadgeClass[getStockStatus(p)]}`}>{t(stockStatusKey[getStockStatus(p)])}</span>,
             },
-            { key: 'quantity', header: t('quantity'), sortable: true, align: 'right', sortValue: (p) => getTotalQuantity(p), render: (p) => getTotalQuantity(p) },
+            {
+                key: 'quantity',
+                header: t('quantity'),
+                sortable: true,
+                align: 'right',
+                sortValue: (p) => getTotalQuantity(p),
+                render: (p) => {
+                    const quantity = getTotalQuantity(p);
+                    const forecast = forecastByProduct.get(p.product_id);
+                    const isLowStock = getStockStatus(p) !== 'In Stock';
+                    const hasForecastRisk = forecast?.action_required ?? false;
+                    if (!isLowStock && !hasForecastRisk) {
+                        return <span>{quantity}</span>;
+                    }
+                    return (
+                        <span className="inline-flex items-center justify-end gap-1.5">
+                            {quantity}
+                            <span className="group/tip relative inline-flex">
+                                <IconInfoCircle className="h-4 w-4 shrink-0 cursor-help text-warning" />
+                                <span className="pointer-events-none absolute right-0 top-full z-10 mt-2 hidden w-64 rounded bg-black/90 p-2 text-left text-xs font-normal normal-case leading-relaxed text-white group-hover/tip:block">
+                                    {isLowStock && (
+                                        <div>{t('quantity_alert_low_stock').replace('{quantity}', String(quantity)).replace('{threshold}', String(p.min_threshold))}</div>
+                                    )}
+                                    {hasForecastRisk && forecast && (
+                                        <div className={isLowStock ? 'mt-1.5 border-t border-white/20 pt-1.5' : ''}>
+                                            {t('restock_risk')}: {forecast.stockout_risk} — {t('reorder')} {forecast.recommended_order_quantity}. {forecast.reasoning}
+                                        </div>
+                                    )}
+                                </span>
+                            </span>
+                        </span>
+                    );
+                },
+            },
             {
                 key: 'expiry',
                 header: t('nearest_expiry'),
@@ -281,54 +298,6 @@ const ComponentsInventoryList = () => {
                         </div>
                     </div>
                 </div>
-
-                {alertList.length > 0 && (
-                    <div className="panel mb-5 border-warning">
-                        <div className="mb-4 flex items-center gap-2">
-                            <IconBell className="h-5 w-5 shrink-0 text-warning" />
-                            <h2 className="text-xl">
-                                {t('active_low_stock_alerts')} ({alertList.length})
-                            </h2>
-                        </div>
-                        <div className="table-responsive">
-                            <table className="table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>{t('product_name')}</th>
-                                        <th>{t('store')}</th>
-                                        <th className="text-right">{t('current_stock')}</th>
-                                        <th className="text-right">{t('min_threshold')}</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {alertList.map((alert) => (
-                                        <tr key={alert.alert_id}>
-                                            <td>
-                                                <Link href={`/inventory/${alert.product}`} className="font-semibold hover:text-primary">
-                                                    {alert.product_name}
-                                                </Link>
-                                            </td>
-                                            <td>{alert.store_name ?? '—'}</td>
-                                            <td className="text-right text-danger">{alert.current_stock}</td>
-                                            <td className="text-right">{alert.min_threshold}</td>
-                                            <td className="text-right">
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-outline-success btn-sm"
-                                                    disabled={resolvingAlertId === alert.alert_id}
-                                                    onClick={() => resolveAlert(alert.alert_id)}
-                                                >
-                                                    {t('resolve')}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
 
                 <div className="panel">
                     <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
