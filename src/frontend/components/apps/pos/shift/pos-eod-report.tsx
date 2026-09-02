@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
 import { ShiftEodReport as ShiftEodReportType, ShiftRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
@@ -12,20 +11,7 @@ interface Props {
 
 export default function PosEodReport({ activeShift }: Props) {
     const { t } = getTranslation();
-    const [report, setReport] = useState<ShiftEodReportType | null>(null);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        if (!activeShift) {
-            setReport(null);
-            return;
-        }
-        setLoading(true);
-        apiFetch<ShiftEodReportType>(`/shifts/${activeShift.shift_id}/eod-report/`)
-            .then(setReport)
-            .catch(() => setReport(null))
-            .finally(() => setLoading(false));
-    }, [activeShift]);
+    const { data: report, isLoading: loading } = useApi<ShiftEodReportType>(activeShift ? `/shifts/${activeShift.shift_id}/eod-report/` : null);
 
     if (!activeShift) {
         return <div className="py-10 text-center text-white-dark">No shift currently open</div>;

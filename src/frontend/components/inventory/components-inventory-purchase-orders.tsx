@@ -2,9 +2,10 @@
 import IconRefresh from '@/components/icon/icon-refresh';
 import { getTranslation } from '@/i18n';
 import { apiFetch } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
 import { ShipmentRecord } from '@/types/admin';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 const statusBadgeClass: Record<ShipmentRecord['status'], string> = {
     Preparing: 'bg-info-light text-info dark:bg-info dark:text-info-light',
@@ -14,34 +15,22 @@ const statusBadgeClass: Record<ShipmentRecord['status'], string> = {
 
 const ComponentsInventoryPurchaseOrders = () => {
     const { t } = getTranslation();
-    const [orders, setOrders] = useState<ShipmentRecord[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { data, isLoading: loading, mutate: reload } = useApi<ShipmentRecord[]>('/shipments/');
+    const orders = data ?? [];
     const [updatingId, setUpdatingId] = useState<number | null>(null);
     const [sweeping, setSweeping] = useState(false);
-
-    const reload = () => {
-        setLoading(true);
-        apiFetch<ShipmentRecord[]>('/shipments/')
-            .then(setOrders)
-            .catch(() => setOrders([]))
-            .finally(() => setLoading(false));
-    };
-
-    useEffect(() => {
-        reload();
-    }, []);
 
     const markDelivered = (poId: number) => {
         setUpdatingId(poId);
         apiFetch(`/purchase-orders/${poId}/status/`, { method: 'PATCH', body: { status: 'Delivered' } })
-            .then(reload)
+            .then(() => reload())
             .finally(() => setUpdatingId(null));
     };
 
     const checkOverdue = () => {
         setSweeping(true);
         apiFetch('/shipments/check-overdue/', { method: 'POST' })
-            .then(reload)
+            .then(() => reload())
             .finally(() => setSweeping(false));
     };
 

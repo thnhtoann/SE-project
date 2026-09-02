@@ -1,6 +1,7 @@
 'use client';
 import IconGlobe from '@/components/icon/icon-globe';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { getTranslation } from '@/i18n';
 import { StoreRecord } from '@/types/admin';
 import { useSearchParams } from 'next/navigation';
@@ -29,27 +30,15 @@ const ComponentsSettingsLazadaConnect = () => {
     const { t } = getTranslation();
     const searchParams = useSearchParams();
 
-    const [lazadaStatus, setLazadaStatus] = useState<LazadaStatus | null>(null);
-    const [stores, setStores] = useState<StoreRecord[]>([]);
+    const { data: lazadaStatus, mutate: loadStatus } = useApi<LazadaStatus>('/lazada/status/');
+    const { data: storesData } = useApi<StoreRecord[]>('/stores/');
+    const stores = storesData ?? [];
     const [selectedStore, setSelectedStore] = useState('');
     const [connecting, setConnecting] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
-
-    const loadStatus = () => {
-        apiFetch<LazadaStatus>('/lazada/status/')
-            .then(setLazadaStatus)
-            .catch(() => setLazadaStatus(null));
-    };
-
-    useEffect(() => {
-        loadStatus();
-        apiFetch<StoreRecord[]>('/stores/')
-            .then(setStores)
-            .catch(() => setStores([]));
-    }, []);
 
     useEffect(() => {
         const outcome = searchParams.get('lazada');

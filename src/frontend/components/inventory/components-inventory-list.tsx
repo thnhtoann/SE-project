@@ -36,9 +36,10 @@ import {
     StoreRecord,
 } from '@/types/admin';
 import { assembleProducts } from '@/lib/inventory-assemble';
+import { useApi } from '@/lib/hooks/use-api';
 import { IRootState } from '@/store';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 type ExpiryFilter = 'all' | ExpiryStatus;
@@ -54,55 +55,45 @@ const ComponentsInventoryList = () => {
     const role = useSelector((state: IRootState) => state.session.role);
     const isChainManager = role === 'Chain Manager' || role === 'Admin';
 
-    const [items, setItems] = useState<Product[]>([]);
-    const [stores, setStores] = useState<StoreRecord[]>([]);
     const [selectedStoreId, setSelectedStoreId] = useState('');
-    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
+    const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
 
+    // Store Manager/Cashier are locked server-side to their own store no matter
+    // what's requested here; the ?store= param only ever does something for a
+    // Chain Manager/Admin using the store picker below.
+    const inventoryPath = isChainManager && selectedStoreId ? `/store-inventories/?store=${selectedStoreId}` : '/store-inventories/';
+
+    const { data: products, mutate: mutateProducts } = useApi<ProductApiRecord[]>('/products/');
+    const { data: categories } = useApi<CategoryRecord[]>('/categories/');
+    const { data: batches } = useApi<BatchApiRecord[]>('/batches/');
+    const { data: inventories } = useApi<StoreInventoryApiRecord[]>(inventoryPath);
+    const { data: stores } = useApi<StoreRecord[]>('/stores/');
     // Low-stock alerts and demand-forecast reorder risk (forecasting/procurement apps) --
     // both Store/Chain-Manager-only, so a Cashier viewing this page degrades gracefully to
     // no alerts panel / no risk column rather than an error.
-    const [alerts, setAlerts] = useState<InventoryAlertRecord[]>([]);
-    const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
-    const [forecastByProduct, setForecastByProduct] = useState<Map<number, ForecastProductRow>>(new Map());
+    const { data: alerts, mutate: mutateAlerts } = useApi<InventoryAlertRecord[]>('/low-stock-alerts/?is_resolved=false');
+    const { data: forecastResponse } = useApi<ForecastResponse>('/procurement/forecast/');
 
-    useEffect(() => {
-        // Store Manager/Cashier are locked server-side to their own store no matter
-        // what's requested here; the ?store= param only ever does something for a
-        // Chain Manager/Admin using the store picker below.
-        const inventoryPath = isChainManager && selectedStoreId ? `/store-inventories/?store=${selectedStoreId}` : '/store-inventories/';
+    const loading = !products || !categories || !batches || !inventories || !stores;
+    const items = useMemo(
+        () => (products && categories && batches && inventories && stores ? assembleProducts(products, categories, batches, inventories, stores) : []),
+        [products, categories, batches, inventories, stores],
+    );
+    const forecastByProduct = useMemo(() => new Map((forecastResponse?.products ?? []).map((p) => [p.product_id, p])), [forecastResponse]);
+    const alertList = alerts ?? [];
+    const storeList = stores ?? [];
 
-        Promise.all([
-            apiFetch<ProductApiRecord[]>('/products/'),
-            apiFetch<CategoryRecord[]>('/categories/'),
-            apiFetch<BatchApiRecord[]>('/batches/'),
-            apiFetch<StoreInventoryApiRecord[]>(inventoryPath),
-            apiFetch<StoreRecord[]>('/stores/'),
-        ])
-            .then(([products, categories, batches, inventories, fetchedStores]) => {
-                setItems(assembleProducts(products, categories, batches, inventories, fetchedStores));
-                setStores(fetchedStores);
-            })
-            .catch(() => setItems([]))
-            .finally(() => setLoading(false));
-
-        apiFetch<InventoryAlertRecord[]>('/low-stock-alerts/?is_resolved=false')
-            .then(setAlerts)
-            .catch(() => setAlerts([]));
-
-        apiFetch<ForecastResponse>('/procurement/forecast/')
-            .then((res) => setForecastByProduct(new Map(res.products.map((p) => [p.product_id, p]))))
-            .catch(() => setForecastByProduct(new Map()));
-    }, [isChainManager, selectedStoreId]);
-
-    const resolveAlert = useCallback((alertId: number) => {
-        setResolvingAlertId(alertId);
-        apiFetch(`/low-stock-alerts/${alertId}/resolve/`, { method: 'PATCH', body: { is_resolved: true } })
-            .then(() => setAlerts((prev) => prev.filter((a) => a.alert_id !== alertId)))
-            .finally(() => setResolvingAlertId(null));
-    }, []);
+    const resolveAlert = useCallback(
+        (alertId: number) => {
+            setResolvingAlertId(alertId);
+            apiFetch(`/low-stock-alerts/${alertId}/resolve/`, { method: 'PATCH', body: { is_resolved: true } })
+                .then(() => mutateAlerts((prev) => prev?.filter((a) => a.alert_id !== alertId), { revalidate: false }))
+                .finally(() => setResolvingAlertId(null));
+        },
+        [mutateAlerts],
+    );
 
     const filtered = useMemo(
         () =>
@@ -126,13 +117,13 @@ const ComponentsInventoryList = () => {
         (id: number) => {
             if (!window.confirm(t('confirm_delete_product'))) return;
             apiFetch(`/products/${id}/`, { method: 'DELETE' })
-                .then(() => setItems((prev) => prev.filter((p) => p.product_id !== id)))
+                .then(() => mutateProducts((prev) => prev?.filter((p) => p.product_id !== id), { revalidate: false }))
                 .catch(() => {
                     // Leave the row in place — most likely a 4xx because the
                     // product is still referenced elsewhere (e.g. an OrderDetail).
                 });
         },
-        [t],
+        [t, mutateProducts],
     );
 
     const columns: AdminTableColumn<Product>[] = useMemo(
@@ -291,12 +282,12 @@ const ComponentsInventoryList = () => {
                     </div>
                 </div>
 
-                {alerts.length > 0 && (
+                {alertList.length > 0 && (
                     <div className="panel mb-5 border-warning">
                         <div className="mb-4 flex items-center gap-2">
                             <IconBell className="h-5 w-5 shrink-0 text-warning" />
                             <h2 className="text-xl">
-                                {t('active_low_stock_alerts')} ({alerts.length})
+                                {t('active_low_stock_alerts')} ({alertList.length})
                             </h2>
                         </div>
                         <div className="table-responsive">
@@ -311,7 +302,7 @@ const ComponentsInventoryList = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {alerts.map((alert) => (
+                                    {alertList.map((alert) => (
                                         <tr key={alert.alert_id}>
                                             <td>
                                                 <Link href={`/inventory/${alert.product}`} className="font-semibold hover:text-primary">
@@ -350,7 +341,7 @@ const ComponentsInventoryList = () => {
                             {isChainManager && (
                                 <select className="form-select w-auto" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)}>
                                     <option value="">{t('all_stores')}</option>
-                                    {stores.map((s) => (
+                                    {storeList.map((s) => (
                                         <option key={s.store_id} value={s.store_id}>
                                             {s.store_name}
                                         </option>

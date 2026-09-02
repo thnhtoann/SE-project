@@ -20,14 +20,12 @@ import { DiscountApiRecord, Product } from '@/types/admin';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import useSWR from 'swr';
 
 type DiscountType = 'percentage' | 'price';
 
 const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
     const { t } = getTranslation();
-    const [product, setProduct] = useState<Product | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [activeDiscountId, setActiveDiscountId] = useState<number | null>(null);
     const [discountType, setDiscountType] = useState<DiscountType>('percentage');
     const [discountValue, setDiscountValue] = useState('');
     const [discountError, setDiscountError] = useState('');
@@ -36,20 +34,11 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
     const discountSectionRef = useRef<HTMLDivElement>(null);
     const searchParams = useSearchParams();
 
-    const reload = () => {
-        setLoading(true);
-        Promise.all([fetchProductById(productId), apiFetch<DiscountApiRecord[]>(`/discounts/?product=${productId}&is_active=true`).catch(() => [])])
-            .then(([fetchedProduct, activeDiscounts]) => {
-                setProduct(fetchedProduct);
-                setActiveDiscountId(activeDiscounts[0]?.discount_id ?? null);
-            })
-            .finally(() => setLoading(false));
-    };
-
-    useEffect(() => {
-        reload();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [productId]);
+    const { data, isLoading: loading, mutate: reload } = useSWR(['product-detail', productId], () =>
+        Promise.all([fetchProductById(productId), apiFetch<DiscountApiRecord[]>(`/discounts/?product=${productId}&is_active=true`).catch(() => [] as DiscountApiRecord[])]),
+    );
+    const product = data?.[0] ?? null;
+    const activeDiscountId = data?.[1]?.[0]?.discount_id ?? null;
 
     useEffect(() => {
         if (product && searchParams.get('focus') === 'discount') {
@@ -95,7 +84,7 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
 
     const removeDiscount = () => {
         if (!activeDiscountId) return;
-        apiFetch(`/discounts/${activeDiscountId}/`, { method: 'PATCH', body: { is_active: false } }).then(reload);
+        apiFetch(`/discounts/${activeDiscountId}/`, { method: 'PATCH', body: { is_active: false } }).then(() => reload());
     };
 
     if (loading) {

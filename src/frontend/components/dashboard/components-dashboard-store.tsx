@@ -18,12 +18,12 @@ import {
     VIP_CUSTOMER,
 } from '@/data/mock-dashboards';
 import { IRootState } from '@/store';
-import { apiFetch } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
 import { ReportPeriod, RevenueTrendResponse, StaffRecord, StoreRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
 
@@ -35,11 +35,8 @@ const ComponentsDashboardStore = () => {
     const sessionStoreId = useSelector((state: IRootState) => state.session.storeId);
     const [isMounted, setIsMounted] = useState(false);
     const [period, setPeriod] = useState<ReportPeriod>('month');
-    const [branches, setBranches] = useState<StoreRecord[]>([]);
     const [branchId, setBranchId] = useState<number | null>(null);
     const [tab, setTab] = useState<StoreTab>('performance');
-    const [trend, setTrend] = useState<RevenueTrendResponse | null>(null);
-    const [topStaff, setTopStaff] = useState<StaffRecord[]>([]);
 
     useEffect(() => {
         setIsMounted(true);
@@ -48,40 +45,31 @@ const ComponentsDashboardStore = () => {
     // core.StoreViewSet is Chain-Manager-only even for GET, so a Store Manager viewing this
     // page (RevenueTrendView itself allows Store Manager) falls back to just their own store
     // rather than an empty branch list.
-    useEffect(() => {
-        apiFetch<StoreRecord[]>('/stores/')
-            .then((stores) => {
-                setBranches(stores);
-                if (stores.length > 0) setBranchId(stores[0].store_id);
-            })
-            .catch(() => {
-                if (sessionStoreId) {
-                    const fallback: StoreRecord = { store_id: sessionStoreId, store_name: `Store #${sessionStoreId}`, location: '' };
-                    setBranches([fallback]);
-                    setBranchId(sessionStoreId);
-                }
-            });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionStoreId]);
+    const { data: storesData, error: storesError } = useApi<StoreRecord[]>('/stores/');
+    const branches = useMemo(() => {
+        if (storesData) return storesData;
+        if (storesError && sessionStoreId) return [{ store_id: sessionStoreId, store_name: `Store #${sessionStoreId}`, location: '' }];
+        return [];
+    }, [storesData, storesError, sessionStoreId]);
 
+    // Auto-select the first branch once the list loads, without stomping on a
+    // selection the user already made on a later revalidation.
     useEffect(() => {
-        if (!branchId) return;
-        apiFetch<RevenueTrendResponse>(`/reports/revenue-trend/?period=${period}&store=${branchId}`)
-            .then(setTrend)
-            .catch(() => setTrend(null));
-        // Chain-Manager-only endpoint (see note above) -- degrades to an empty list for a
-        // Store Manager rather than breaking the page.
-        apiFetch<StaffRecord[]>('/staff/')
-            .then((staff) =>
-                setTopStaff(
-                    staff
-                        .filter((s) => s.store === branchId)
-                        .sort((a, b) => b.monthly_sales - a.monthly_sales)
-                        .slice(0, 5)
-                )
-            )
-            .catch(() => setTopStaff([]));
-    }, [branchId, period]);
+        if (branchId === null && branches.length > 0) setBranchId(branches[0].store_id);
+    }, [branches, branchId]);
+
+    const { data: trend } = useApi<RevenueTrendResponse>(branchId ? `/reports/revenue-trend/?period=${period}&store=${branchId}` : null);
+    // Chain-Manager-only endpoint (see note above) -- degrades to an empty list for a
+    // Store Manager rather than breaking the page.
+    const { data: staffAll } = useApi<StaffRecord[]>('/staff/');
+    const topStaff = useMemo(
+        () =>
+            (staffAll ?? [])
+                .filter((s) => s.store === branchId)
+                .sort((a, b) => b.monthly_sales - a.monthly_sales)
+                .slice(0, 5),
+        [staffAll, branchId],
+    );
 
     const factor = PERIOD_MULTIPLIER[period];
     const branch = branches.find((b) => b.store_id === branchId) ?? null;
@@ -93,7 +81,7 @@ const ComponentsDashboardStore = () => {
 
     const branchMembers = MEMBERSHIP_TIERS.map((t) => Math.round(t.count * share));
 
-    const hasData = !!branch && trend !== null;
+    const hasData = !!branch && trend !== undefined;
 
     const revenueTrendChart: any = {
         series: [{ name: t('revenue'), data: (trend?.points ?? []).map((p) => Math.round(Number(p.total))) }],

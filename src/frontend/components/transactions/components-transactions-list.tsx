@@ -2,13 +2,16 @@
 import AdminTable, { AdminTableColumn } from '@/components/datatable/admin-table';
 import IconSearch from '@/components/icon/icon-search';
 import { statusBadgeClass } from '@/components/dashboard/components-dashboard-analytics';
-import { apiFetch } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import { OrderRecord, StaffRecord, StoreRecord } from '@/types/admin';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 const defaultBadgeClass = 'bg-white-dark/20 text-white-dark dark:bg-[#1b2e4b]';
+
+// Stable reference (vs. `?? []`) so useMemo hooks below don't recompute every render while loading.
+const EMPTY_ORDERS: OrderRecord[] = [];
 
 // Fixed colors for the channels this project already knows about (matches
 // CHANNEL_REVENUE in mock-dashboards.ts); anything else falls back to
@@ -23,35 +26,21 @@ const channelBadgeClass: Record<string, string> = {
 
 const ComponentsTransactionsList = () => {
     const { t } = getTranslation();
-    const [orders, setOrders] = useState<OrderRecord[]>([]);
-    const [staffById, setStaffById] = useState<Record<number, string>>({});
-    const [storeById, setStoreById] = useState<Record<number, string>>({});
-    const [loading, setLoading] = useState(true);
+    const { data: orders, isLoading: loading } = useApi<OrderRecord[]>('/orders/');
+    const { data: staffRows } = useApi<StaffRecord[]>('/staff/');
+    const { data: storeRows } = useApi<StoreRecord[]>('/stores/');
     const [search, setSearch] = useState('');
     const [channel, setChannel] = useState('all');
 
-    useEffect(() => {
-        Promise.all([
-            apiFetch<OrderRecord[]>('/orders/'),
-            apiFetch<StaffRecord[]>('/staff/'),
-            apiFetch<StoreRecord[]>('/stores/'),
-        ])
-            .then(([orderRows, staffRows, storeRows]) => {
-                setOrders(orderRows);
-                setStaffById(Object.fromEntries(staffRows.map((s) => [s.staff_id, s.full_name])));
-                setStoreById(Object.fromEntries(storeRows.map((s) => [s.store_id, s.store_name])));
-            })
-            .catch(() => {
-                setOrders([]);
-            })
-            .finally(() => setLoading(false));
-    }, []);
+    const staffById = useMemo(() => Object.fromEntries((staffRows ?? []).map((s) => [s.staff_id, s.full_name])), [staffRows]);
+    const storeById = useMemo(() => Object.fromEntries((storeRows ?? []).map((s) => [s.store_id, s.store_name])), [storeRows]);
+    const orderList = orders ?? EMPTY_ORDERS;
 
-    const channels = useMemo(() => Array.from(new Set(orders.map((o) => o.order_type))).sort(), [orders]);
+    const channels = useMemo(() => Array.from(new Set(orderList.map((o) => o.order_type))).sort(), [orderList]);
 
     const filtered = useMemo(() => {
         const q = search.toLowerCase();
-        return orders.filter((order) => {
+        return orderList.filter((order) => {
             if (channel !== 'all' && order.order_type !== channel) return false;
             if (!q) return true;
             const cashier = order.staff ? (staffById[order.staff] ?? '') : '';
@@ -62,7 +51,7 @@ const ComponentsTransactionsList = () => {
                 cashier.toLowerCase().includes(q)
             );
         });
-    }, [orders, search, channel, staffById]);
+    }, [orderList, search, channel, staffById]);
 
     const columns: AdminTableColumn<OrderRecord>[] = useMemo(
         () => [

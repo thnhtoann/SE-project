@@ -8,9 +8,10 @@ import IconX from '@/components/icon/icon-x';
 import TierBadge from '@/components/customers/tier-badge';
 import { getTranslation } from '@/i18n';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { CustomerRecord, CustomerStatus, MembershipTier } from '@/types/admin';
 import { Dialog, DialogPanel, Transition, TransitionChild } from '@headlessui/react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 
 const statusBadgeClass: Record<CustomerStatus, string> = {
     Active: 'bg-success-light text-success dark:bg-success dark:text-success-light',
@@ -35,28 +36,15 @@ const emptyForm: FormState = { name: '', email: '', phone: '', tier: 'Bronze' };
 
 const ComponentsCustomersList = () => {
     const { t } = getTranslation();
-    const [customers, setCustomers] = useState<CustomerRecord[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { data: customers, isLoading: loading, mutate } = useApi<CustomerRecord[]>('/customers/');
     const [search, setSearch] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [form, setForm] = useState<FormState>(emptyForm);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
-    const reload = () => {
-        setLoading(true);
-        apiFetch<CustomerRecord[]>('/customers/')
-            .then(setCustomers)
-            .catch(() => setCustomers([]))
-            .finally(() => setLoading(false));
-    };
-
-    useEffect(() => {
-        reload();
-    }, []);
-
     const filtered = useMemo(
-        () => customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search)),
+        () => (customers ?? []).filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search)),
         [customers, search],
     );
 
@@ -75,7 +63,7 @@ const ComponentsCustomersList = () => {
         try {
             await apiFetch('/customers/', { method: 'POST', body: form });
             setModalOpen(false);
-            reload();
+            mutate();
         } catch (err) {
             if (err instanceof ApiError) {
                 const body = err.body as { detail?: string } | null;

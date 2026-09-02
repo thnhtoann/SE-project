@@ -4,10 +4,11 @@ import IconGithub from '@/components/icon/icon-github';
 import IconLinkedin from '@/components/icon/icon-linkedin';
 import IconTwitter from '@/components/icon/icon-twitter';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { RoleRecord, StaffRecord, StaffRole, StoreRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
 interface FormState {
     username: string;
@@ -49,17 +50,10 @@ const ComponentsStaffAddForm = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [roles, setRoles] = useState<RoleRecord[]>([]);
-    const [stores, setStores] = useState<StoreRecord[]>([]);
-
-    useEffect(() => {
-        apiFetch<RoleRecord[]>('/roles/')
-            .then(setRoles)
-            .catch(() => setRoles([]));
-        apiFetch<StoreRecord[]>('/stores/')
-            .then(setStores)
-            .catch(() => setStores([]));
-    }, []);
+    const { data: rolesData } = useApi<RoleRecord[]>('/roles/');
+    const { data: storesData } = useApi<StoreRecord[]>('/stores/');
+    const roles = rolesData ?? [];
+    const stores = storesData ?? [];
 
     const changeValue = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { id, value } = e.target;

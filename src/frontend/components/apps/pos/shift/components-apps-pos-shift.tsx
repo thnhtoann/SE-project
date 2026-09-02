@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '@/store';
 import { closeShiftThunk, fetchActiveShift, openShiftThunk } from '@/store/posSlice';
-import { apiFetch } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { ShiftRecord } from '@/types/admin';
 import PosShiftList from './pos-shift-list';
 import PosEodReport from './pos-eod-report';
@@ -17,25 +17,12 @@ const ComponentsAppsPosShift = () => {
     const storeId = useSelector((state: IRootState) => state.session.storeId);
     const activeShift = useSelector((state: IRootState) => state.pos.activeShift);
     const shiftError = useSelector((state: IRootState) => state.pos.shiftError);
-    const [shifts, setShifts] = useState<ShiftRecord[]>([]);
-    const [shiftsLoading, setShiftsLoading] = useState(true);
+    const { data: shiftsData, isLoading: shiftsLoading, mutate: reloadShifts } = useApi<ShiftRecord[]>(storeId ? `/shifts/?store=${storeId}` : null);
+    const shifts = shiftsData ?? [];
     const [panel, setPanel] = useState<'shift' | 'eod'>('shift');
 
-    const reloadShifts = () => {
-        if (!storeId) return;
-        setShiftsLoading(true);
-        apiFetch<ShiftRecord[]>(`/shifts/?store=${storeId}`)
-            .then(setShifts)
-            .catch(() => setShifts([]))
-            .finally(() => setShiftsLoading(false));
-    };
-
     useEffect(() => {
-        if (storeId) {
-            dispatch(fetchActiveShift(storeId));
-            reloadShifts();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (storeId) dispatch(fetchActiveShift(storeId));
     }, [dispatch, storeId]);
 
     const handleOpenShift = async () => {

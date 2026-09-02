@@ -11,6 +11,7 @@ import IconShoppingCart from '@/components/icon/icon-shopping-cart';
 import ComponentsSettingsLazadaConnect from '@/components/settings/components-settings-lazada-connect';
 import { getTranslation } from '@/i18n';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { BusinessProfileRecord, BusinessSector, MarketplaceChannelSettingRecord, PaymentMethodSettingRecord } from '@/types/admin';
 import { ChangeEvent, FC, useEffect, useState } from 'react';
 
@@ -84,27 +85,28 @@ const emptyProfile: BusinessProfileRecord = {
 const ComponentsSettingsStoreTabs = () => {
     const { t } = getTranslation();
     const [tab, setTab] = useState<SettingsTab>('store-information');
+    const { data: profileData, mutate: mutateProfile } = useApi<BusinessProfileRecord>('/business-profile/');
+    const { data: paymentData } = useApi<PaymentMethodSettingRecord[]>('/payment-method-settings/');
+    const { data: channelData } = useApi<MarketplaceChannelSettingRecord[]>('/marketplace-channel-settings/');
+
     const [storeInfo, setStoreInfo] = useState<BusinessProfileRecord>(emptyProfile);
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethodSettingRecord[]>([]);
     const [channels, setChannels] = useState<MarketplaceChannelSettingRecord[]>([]);
-    const [loading, setLoading] = useState(true);
     const [saveError, setSaveError] = useState('');
     const [saved, setSaved] = useState(false);
 
+    // Seed the editable local copies once, when all three have loaded --
+    // guarded so a background SWR revalidation never clobbers in-progress edits.
+    const [seeded, setSeeded] = useState(false);
     useEffect(() => {
-        Promise.all([
-            apiFetch<BusinessProfileRecord>('/business-profile/'),
-            apiFetch<PaymentMethodSettingRecord[]>('/payment-method-settings/'),
-            apiFetch<MarketplaceChannelSettingRecord[]>('/marketplace-channel-settings/'),
-        ])
-            .then(([profile, methods, channelRows]) => {
-                setStoreInfo(profile);
-                setPaymentMethods(methods);
-                setChannels(channelRows);
-            })
-            .catch(() => {})
-            .finally(() => setLoading(false));
-    }, []);
+        if (!seeded && profileData && paymentData && channelData) {
+            setStoreInfo(profileData);
+            setPaymentMethods(paymentData);
+            setChannels(channelData);
+            setSeeded(true);
+        }
+    }, [seeded, profileData, paymentData, channelData]);
+    const loading = !seeded;
 
     const reportSaveError = (err: unknown, fallbackKey: string) => {
         if (err instanceof ApiError) {
@@ -135,6 +137,7 @@ const ComponentsSettingsStoreTabs = () => {
         try {
             const updated = await apiFetch<BusinessProfileRecord>('/business-profile/', { method: 'PUT', body: storeInfo });
             setStoreInfo(updated);
+            mutateProfile(updated, { revalidate: false });
             setSaved(true);
         } catch (err) {
             reportSaveError(err, 'error_save_store_info_failed');

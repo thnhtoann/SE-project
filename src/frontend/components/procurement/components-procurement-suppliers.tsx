@@ -6,11 +6,12 @@ import IconSearch from '@/components/icon/icon-search';
 import IconTrashLines from '@/components/icon/icon-trash-lines';
 import IconX from '@/components/icon/icon-x';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { getTranslation } from '@/i18n';
 import { IRootState } from '@/store';
 import { Supplier } from '@/types/admin';
 import { Dialog, DialogPanel, Transition, TransitionChild } from '@headlessui/react';
-import { ChangeEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, Fragment, FormEvent, useCallback, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 interface SupplierFormState {
@@ -35,36 +36,15 @@ const ComponentsProcurementSuppliers = () => {
     // GET requires Store Manager or above; POST/PUT/DELETE require Chain Manager or Admin (core/permissions.py)
     const canMutate = role === 'Chain Manager' || role === 'Admin';
 
-    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [loadError, setLoadError] = useState('');
+    const { data: rawSuppliers, error: suppliersError, isLoading: loading, mutate } = useApi<Supplier[]>('/suppliers/');
+    const suppliers = useMemo(() => (rawSuppliers ?? []).map(normalizeSupplier), [rawSuppliers]);
+    const loadError = suppliersError ? (suppliersError instanceof ApiError ? String(suppliersError.body ?? suppliersError.message) : t('error_loading_suppliers')) : '';
     const [search, setSearch] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [form, setForm] = useState<SupplierFormState>(emptyForm);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
-
-    useEffect(() => {
-        let cancelled = false;
-        setLoading(true);
-        apiFetch<Supplier[]>('/suppliers/')
-            .then((data) => {
-                if (!cancelled) setSuppliers(data.map(normalizeSupplier));
-            })
-            .catch((err) => {
-                if (!cancelled) setLoadError(err instanceof ApiError ? String(err.body ?? err.message) : t('error_loading_suppliers'));
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-        // Fetch once on mount only — `t` is not stable across renders and
-        // would otherwise cause a re-fetch loop.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
 
     const filtered = suppliers.filter(
         (s) =>
@@ -104,12 +84,12 @@ const ComponentsProcurementSuppliers = () => {
             if (!window.confirm(t('confirm_delete_supplier'))) return;
             try {
                 await apiFetch(`/suppliers/${id}/`, { method: 'DELETE' });
-                setSuppliers((prev) => prev.filter((s) => s.supplier_id !== id));
+                mutate((prev) => prev?.filter((s) => s.supplier_id !== id), { revalidate: false });
             } catch (err) {
                 window.alert(err instanceof ApiError ? String((err.body as { detail?: string })?.detail ?? err.message) : t('error_deleting_supplier'));
             }
         },
-        [t],
+        [t, mutate],
     );
 
     // Mirrors SupplierSerializer: supplier_name/contact_phone required,
@@ -135,10 +115,10 @@ const ComponentsProcurementSuppliers = () => {
         try {
             if (editingId !== null) {
                 const updated = await apiFetch<Supplier>(`/suppliers/${editingId}/`, { method: 'PUT', body: form });
-                setSuppliers((prev) => prev.map((s) => (s.supplier_id === editingId ? normalizeSupplier(updated) : s)));
+                mutate((prev) => prev?.map((s) => (s.supplier_id === editingId ? updated : s)), { revalidate: false });
             } else {
                 const created = await apiFetch<Supplier>('/suppliers/', { method: 'POST', body: form });
-                setSuppliers((prev) => [...prev, normalizeSupplier(created)]);
+                mutate((prev) => [...(prev ?? []), created], { revalidate: false });
             }
             setModalOpen(false);
         } catch (err) {

@@ -6,12 +6,12 @@ import IconUsersGroup from '@/components/icon/icon-users-group';
 import PeriodSelector from '@/components/dashboard/period-selector';
 import { COMPANY_KPIS } from '@/data/mock-dashboards';
 import { IRootState } from '@/store';
-import { apiFetch } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { OrderRecord, ReportPeriod, RevenueTrendResponse } from '@/types/admin';
 import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
 
@@ -41,28 +41,16 @@ const ComponentsDashboardAnalytics = () => {
     const [isMounted, setIsMounted] = useState(false);
     const [period, setPeriod] = useState<ReportPeriod>('month');
 
-    const [trend, setTrend] = useState<RevenueTrendResponse | null>(null);
-    const [topProducts, setTopProducts] = useState<TopProductRow[]>([]);
-    const [recentOrders, setRecentOrders] = useState<OrderRecord[]>([]);
+    const { data: trend } = useApi<RevenueTrendResponse>(`/reports/revenue-trend/?period=${period}`);
+    const { data: salesPerformance } = useApi<{ best_sellers: TopProductRow[] }>('/reports/sales-performance/?limit=5');
+    const { data: orders } = useApi<OrderRecord[]>('/orders/');
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
 
-    useEffect(() => {
-        apiFetch<RevenueTrendResponse>(`/reports/revenue-trend/?period=${period}`)
-            .then(setTrend)
-            .catch(() => setTrend(null));
-    }, [period]);
-
-    useEffect(() => {
-        apiFetch<{ best_sellers: TopProductRow[] }>('/reports/sales-performance/?limit=5')
-            .then((res) => setTopProducts(res.best_sellers))
-            .catch(() => setTopProducts([]));
-        apiFetch<OrderRecord[]>('/orders/')
-            .then((orders) => setRecentOrders([...orders].sort((a, b) => (a.order_date < b.order_date ? 1 : -1)).slice(0, 5)))
-            .catch(() => setRecentOrders([]));
-    }, []);
+    const topProducts = salesPerformance?.best_sellers ?? [];
+    const recentOrders = useMemo(() => [...(orders ?? [])].sort((a, b) => (a.order_date < b.order_date ? 1 : -1)).slice(0, 5), [orders]);
 
     const points = trend?.points ?? [];
     const hasData = points.length > 0;

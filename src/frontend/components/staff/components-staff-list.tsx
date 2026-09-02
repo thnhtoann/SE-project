@@ -7,12 +7,13 @@ import IconSearch from '@/components/icon/icon-search';
 import IconStar from '@/components/icon/icon-star';
 import IconUserPlus from '@/components/icon/icon-user-plus';
 import IconUsers from '@/components/icon/icon-users';
-import { apiFetch, ApiError } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { StaffPerformanceStatus, StaffRecord, StoreRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
 import { IRootState } from '@/store';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSelector } from 'react-redux';
 
 const performanceBadgeClass: Record<StaffPerformanceStatus, string> = {
@@ -34,55 +35,29 @@ const ComponentsStaffList = () => {
     const role = useSelector((state: IRootState) => state.session.role);
     const isChainManager = role === 'Chain Manager' || role === 'Admin';
 
-    const [staff, setStaff] = useState<StaffRecord[]>([]);
-    const [stores, setStores] = useState<StoreRecord[]>([]);
     const [selectedStoreId, setSelectedStoreId] = useState('');
-    const [loading, setLoading] = useState(true);
-    const [loadError, setLoadError] = useState('');
     const [search, setSearch] = useState('');
 
-    useEffect(() => {
-        let cancelled = false;
-        // Store Manager is locked server-side to their own store no matter what's
-        // requested here; ?store= only ever does something for a Chain Manager/Admin
-        // using the store picker below.
-        const staffPath = isChainManager && selectedStoreId ? `/staff/?store=${selectedStoreId}` : '/staff/';
+    // Store Manager is locked server-side to their own store no matter what's
+    // requested here; ?store= only ever does something for a Chain Manager/Admin
+    // using the store picker below.
+    const staffPath = isChainManager && selectedStoreId ? `/staff/?store=${selectedStoreId}` : '/staff/';
+    const { data: staff, error: staffError, isLoading: loading } = useApi<StaffRecord[]>(staffPath);
+    const { data: stores } = useApi<StoreRecord[]>(isChainManager ? '/stores/' : null);
 
-        apiFetch<StaffRecord[]>(staffPath)
-            .then((data) => {
-                if (!cancelled) setStaff(data);
-            })
-            .catch((err) => {
-                if (!cancelled) setLoadError(err instanceof ApiError ? String((err.body as { detail?: string })?.detail ?? err.message) : t('error_loading_staff'));
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
+    const loadError = staffError ? (staffError instanceof ApiError ? String((staffError.body as { detail?: string })?.detail ?? staffError.message) : t('error_loading_staff')) : '';
 
-        if (isChainManager) {
-            apiFetch<StoreRecord[]>('/stores/')
-                .then((data) => {
-                    if (!cancelled) setStores(data);
-                })
-                .catch(() => {
-                    if (!cancelled) setStores([]);
-                });
-        }
+    const staffList = staff ?? [];
+    const storeList = stores ?? [];
 
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isChainManager, selectedStoreId]);
-
-    const filteredStaff = staff.filter(
+    const filteredStaff = staffList.filter(
         (s) => s.full_name.toLowerCase().includes(search.toLowerCase()) || (s.store_name ?? '').toLowerCase().includes(search.toLowerCase()),
     );
 
-    const totalStaff = staff.length;
-    const branchCount = new Set(staff.map((s) => s.store_name).filter(Boolean)).size;
-    const avgMonthlySales = totalStaff > 0 ? Math.round(staff.reduce((sum, s) => sum + s.monthly_sales, 0) / totalStaff) : 0;
-    const excellentCount = staff.filter((s) => s.performance_status === 'Excellent').length;
+    const totalStaff = staffList.length;
+    const branchCount = new Set(staffList.map((s) => s.store_name).filter(Boolean)).size;
+    const avgMonthlySales = totalStaff > 0 ? Math.round(staffList.reduce((sum, s) => sum + s.monthly_sales, 0) / totalStaff) : 0;
+    const excellentCount = staffList.filter((s) => s.performance_status === 'Excellent').length;
 
     return (
         <div>
@@ -153,7 +128,7 @@ const ComponentsStaffList = () => {
                         {isChainManager && (
                             <select className="form-select w-auto" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)}>
                                 <option value="">{t('all_stores')}</option>
-                                {stores.map((s) => (
+                                {storeList.map((s) => (
                                     <option key={s.store_id} value={s.store_id}>
                                         {s.store_name}
                                     </option>

@@ -11,10 +11,12 @@ import { apiFetch, ApiError } from '@/lib/api-client';
 import { currency } from '@/lib/currency';
 import { getStockStatus, getTotalQuantity, stockStatusBadgeClass, stockStatusKey } from '@/lib/inventory';
 import { fetchProductCatalog } from '@/lib/inventory-assemble';
+import { useApi } from '@/lib/hooks/use-api';
 import ComponentsInventoryPurchaseOrders from './components-inventory-purchase-orders';
 import { Product, Supplier } from '@/types/admin';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import useSWR from 'swr';
 
 type OrderSupplyTab = 'create' | 'orders';
 
@@ -35,9 +37,9 @@ const ComponentsInventoryOrderSupply = () => {
     const { t } = getTranslation();
     const [tab, setTab] = useState<OrderSupplyTab>('create');
 
-    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-    const [products, setProducts] = useState<Product[]>([]);
-    const [catalogLoading, setCatalogLoading] = useState(true);
+    const { data: suppliers } = useApi<Supplier[]>('/suppliers/');
+    const { data: catalog, isLoading: catalogLoading } = useSWR('product-catalog', fetchProductCatalog);
+    const products = useMemo(() => catalog?.products ?? [], [catalog]);
 
     const [supplierId, setSupplierId] = useState('');
     const [expectedDate, setExpectedDate] = useState('');
@@ -46,20 +48,7 @@ const ComponentsInventoryOrderSupply = () => {
     const [successMessage, setSuccessMessage] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
-    useEffect(() => {
-        Promise.all([apiFetch<Supplier[]>('/suppliers/'), fetchProductCatalog()])
-            .then(([supplierRows, { products: productRows }]) => {
-                setSuppliers(supplierRows);
-                setProducts(productRows);
-            })
-            .catch(() => {
-                setSuppliers([]);
-                setProducts([]);
-            })
-            .finally(() => setCatalogLoading(false));
-    }, []);
-
-    const supplier = suppliers.find((s) => s.supplier_id === Number(supplierId));
+    const supplier = (suppliers ?? []).find((s) => s.supplier_id === Number(supplierId));
     // core.Product has no supplier link, so every product is orderable from every supplier.
     const lowStockCandidates = useMemo(() => products.filter((p) => getStockStatus(p) !== 'In Stock'), [products]);
 
@@ -222,7 +211,7 @@ const ComponentsInventoryOrderSupply = () => {
                                 <label htmlFor="supplierId">{t('supplier')}</label>
                                 <select id="supplierId" className="form-select" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
                                     <option value="">{t('select_supplier')}</option>
-                                    {suppliers.map((s) => (
+                                    {(suppliers ?? []).map((s) => (
                                         <option key={s.supplier_id} value={s.supplier_id}>
                                             {s.supplier_name}
                                         </option>

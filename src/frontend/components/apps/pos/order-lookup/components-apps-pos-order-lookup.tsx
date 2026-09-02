@@ -1,10 +1,11 @@
 'use client';
 
 import { Dialog, DialogPanel, Transition, TransitionChild } from '@headlessui/react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { IRootState } from '@/store';
 import { apiFetch } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
 import { OrderDetailApiRecord, OrderRecord } from '@/types/admin';
 import PosStatusBadge, { orderStatusBadge, paymentMethodBadge } from '@/components/apps/pos/pos-status-badge';
@@ -21,29 +22,23 @@ function cashierLabel(orderStaffId: number | null, sessionStaffId: number | null
     return `#${orderStaffId}`;
 }
 
+// Stable reference (vs. `?? []`) so the useMemo below doesn't recompute every render while loading.
+const EMPTY_ORDERS: OrderRecord[] = [];
+
 const ComponentsAppsPosOrderLookup = () => {
     const { t } = getTranslation();
     const storeId = useSelector((state: IRootState) => state.session.storeId);
     const staffId = useSelector((state: IRootState) => state.session.staffId);
     const username = useSelector((state: IRootState) => state.session.username);
 
-    const [orders, setOrders] = useState<OrderRecord[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { data: ordersData, isLoading: loading } = useApi<OrderRecord[]>(storeId ? `/orders/?store=${storeId}&channel=POS` : null);
+    const orders = ordersData ?? EMPTY_ORDERS;
     const [search, setSearch] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(null);
     const [selectedDetails, setSelectedDetails] = useState<OrderDetailApiRecord[]>([]);
     const [detailsLoading, setDetailsLoading] = useState(false);
-
-    useEffect(() => {
-        if (!storeId) return;
-        setLoading(true);
-        apiFetch<OrderRecord[]>(`/orders/?store=${storeId}&channel=POS`)
-            .then(setOrders)
-            .catch(() => setOrders([]))
-            .finally(() => setLoading(false));
-    }, [storeId]);
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();

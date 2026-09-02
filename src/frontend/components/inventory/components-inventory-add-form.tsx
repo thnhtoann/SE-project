@@ -2,11 +2,12 @@
 import IconBox from '@/components/icon/icon-box';
 import { getTranslation } from '@/i18n';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
 import { CategoryRecord, ProductApiRecord } from '@/types/admin';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
 interface FormState {
     productName: string;
@@ -32,16 +33,10 @@ const ComponentsInventoryAddForm = () => {
     const { t } = getTranslation();
     const router = useRouter();
     const [form, setForm] = useState<FormState>(emptyForm);
-    const [categories, setCategories] = useState<CategoryRecord[]>([]);
+    const { data: categories } = useApi<CategoryRecord[]>('/categories/');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [createdProductId, setCreatedProductId] = useState<number | null>(null);
-
-    useEffect(() => {
-        apiFetch<CategoryRecord[]>('/categories/')
-            .then(setCategories)
-            .catch(() => setCategories([]));
-    }, []);
 
     const changeValue = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { id, value } = e.target;
@@ -157,7 +152,7 @@ const ComponentsInventoryAddForm = () => {
                                     <label htmlFor="categoryId">{t('category')}</label>
                                     <select id="categoryId" className="form-select" value={form.categoryId} onChange={changeValue} required>
                                         <option value="">{t('select_category')}</option>
-                                        {categories.map((c) => (
+                                        {(categories ?? []).map((c) => (
                                             <option key={c.category_id} value={c.category_id}>
                                                 {c.category_name}
                                             </option>
