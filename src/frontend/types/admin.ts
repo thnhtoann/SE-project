@@ -98,17 +98,32 @@ export interface ShiftEodReport {
 }
 
 // Response shape of GET /reports/revenue-trend/ (core/views.py RevenueTrendView).
+// expense_total is always chain-wide (PurchaseOrder has no store to scope it by),
+// unlike total/order_count which follow the `store` query param.
 export interface RevenueTrendPoint {
     label: string;
     date: string;
     total: string;
     order_count: number;
+    expense_total: string;
 }
 
 export interface RevenueTrendResponse {
     period: 'week' | 'month' | 'quarter';
     store: number | null;
     points: RevenueTrendPoint[];
+}
+
+// Response shape of GET /reports/sales-by-category/ (core/views.py SalesByCategoryView).
+export interface SalesByCategoryRow {
+    category: string;
+    total: string;
+}
+
+export interface SalesByCategoryResponse {
+    period: 'week' | 'month' | 'quarter';
+    store: number | null;
+    categories: SalesByCategoryRow[];
 }
 
 // Mirrors core.Category (fields='__all__').
@@ -291,11 +306,6 @@ export interface RecentTransaction {
 export interface ChannelRevenue {
     channel: string;
     amount: number;
-}
-
-export interface FunnelStage {
-    label: string;
-    value: number;
 }
 
 export interface Branch {

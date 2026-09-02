@@ -1023,9 +1023,16 @@ class BestWorstSellerView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+# PurchaseOrder has no store FK (procurement is chain-wide, not per-branch), so the
+# "expenses" series below is always chain-wide regardless of RevenueTrendView's `store` param.
+PO_LINE_COST = models.ExpressionWrapper(models.F('order_qty') * models.F('unit_cost'), output_field=models.DecimalField(max_digits=12, decimal_places=2))
+
+
 class RevenueTrendView(APIView):
-    """Time-bucketed revenue for the Analytics/Store dashboards. `store` omitted means
-    chain-wide, matching BestWorstSellerView's no-filter-means-everything convention."""
+    """Time-bucketed revenue (income) and order-supply cost (expenses) for the
+    Analytics/Store dashboards. `store` omitted means chain-wide, matching
+    BestWorstSellerView's no-filter-means-everything convention -- this only scopes
+    income, since PurchaseOrder has no store to scope expenses by."""
     permission_classes = [IsChainManager | IsStoreManager]
 
     def get(self, request):
@@ -1055,12 +1062,22 @@ class RevenueTrendView(APIView):
                 .annotate(total=Sum('total_amount'), order_count=models.Count('order_id'))
             )
             by_bucket = {row['bucket']: row for row in rows}
+
+            expense_rows = (
+                PurchaseOrderDetail.objects.filter(po__order_date__gte=month_starts[0])
+                .annotate(bucket=TruncMonth('po__order_date', output_field=models.DateField()))
+                .values('bucket')
+                .annotate(total=Sum(PO_LINE_COST))
+            )
+            expense_by_bucket = {row['bucket']: row['total'] for row in expense_rows}
+
             points = [
                 {
                     "label": d.strftime('%b'),
                     "date": d.isoformat(),
                     "total": str(by_bucket[d]['total']) if d in by_bucket else '0.00',
                     "order_count": by_bucket[d]['order_count'] if d in by_bucket else 0,
+                    "expense_total": str(expense_by_bucket[d]) if d in expense_by_bucket else '0.00',
                 }
                 for d in month_starts
             ]
@@ -1075,12 +1092,22 @@ class RevenueTrendView(APIView):
                 .annotate(total=Sum('total_amount'), order_count=models.Count('order_id'))
             )
             by_bucket = {row['bucket']: row for row in rows}
+
+            expense_rows = (
+                PurchaseOrderDetail.objects.filter(po__order_date__gte=range_start)
+                .annotate(bucket=TruncDate('po__order_date'))
+                .values('bucket')
+                .annotate(total=Sum(PO_LINE_COST))
+            )
+            expense_by_bucket = {row['bucket']: row['total'] for row in expense_rows}
+
             points = [
                 {
                     "label": d.strftime('%a') if period == 'week' else str(d.day),
                     "date": d.isoformat(),
                     "total": str(by_bucket[d]['total']) if d in by_bucket else '0.00',
                     "order_count": by_bucket[d]['order_count'] if d in by_bucket else 0,
+                    "expense_total": str(expense_by_bucket[d]) if d in expense_by_bucket else '0.00',
                 }
                 for d in days
             ]
@@ -1089,6 +1116,48 @@ class RevenueTrendView(APIView):
             "period": period,
             "store": int(store_id) if store_id else None,
             "points": points,
+        }, status=status.HTTP_200_OK)
+
+
+class SalesByCategoryView(APIView):
+    """Revenue by product category for the Store dashboard's "Sale by Category" panel,
+    replacing the old funnel mock. Same store/period convention as RevenueTrendView."""
+    permission_classes = [IsChainManager | IsStoreManager]
+
+    def get(self, request):
+        period = request.query_params.get('period', 'week')
+        if period not in ('week', 'month', 'quarter'):
+            return Response({"detail": "period must be one of: week, month, quarter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        store_id = request.query_params.get('store')
+        today = timezone.localdate()
+        if period == 'quarter':
+            cursor = today.replace(day=1)
+            for _ in range(2):
+                cursor = (cursor - timedelta(days=1)).replace(day=1)
+            range_start = cursor
+        elif period == 'week':
+            range_start = today - timedelta(days=6)
+        else:
+            range_start = today.replace(day=1)
+
+        queryset = OrderDetail.objects.filter(order__status__iexact='Completed', order__order_date__date__gte=range_start)
+        if store_id:
+            queryset = queryset.filter(order__store_id=store_id)
+
+        rows = (
+            queryset.values('product__category__category_name')
+            .annotate(total=Sum('sub_total'))
+            .order_by('-total')
+        )
+
+        return Response({
+            "period": period,
+            "store": int(store_id) if store_id else None,
+            "categories": [
+                {"category": row['product__category__category_name'] or 'Uncategorized', "total": str(row['total'])}
+                for row in rows
+            ],
         }, status=status.HTTP_200_OK)
 
 

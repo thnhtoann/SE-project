@@ -1,4 +1,4 @@
-import { Branch, ChannelRevenue, DeviceVisit, FunnelStage, MembershipTierCount, PeakHourPoint, ReportPeriod, TopCustomer } from '@/types/admin';
+import { Branch, ChannelRevenue, DeviceVisit, MembershipTierCount, PeakHourPoint, ReportPeriod, TopCustomer } from '@/types/admin';
 
 // Stand-in for the real reporting API: scales the seeded month-based figures so
 // switching the period visibly changes every dashboard.
@@ -28,13 +28,6 @@ export const BRANCHES: Branch[] = [
     { id: 1, name: 'District 1 Branch', address: '9 Nguyen Hue Boulevard, District 1, Ho Chi Minh City', revenue: 182500000 },
     { id: 2, name: 'District 3 Branch', address: '48 Le Loi Street, District 3, Ho Chi Minh City', revenue: 96400000 },
     { id: 3, name: 'District 7 Branch', address: '77 Nguyen Van Linh Street, District 7, Ho Chi Minh City', revenue: 133600000 },
-];
-
-export const SALES_FUNNEL: FunnelStage[] = [
-    { label: 'Store Visits', value: 4200 },
-    { label: 'Product Views', value: 2850 },
-    { label: 'Added to Cart', value: 1460 },
-    { label: 'Checked Out', value: 980 },
 ];
 
 export const CHANNEL_REVENUE: ChannelRevenue[] = [

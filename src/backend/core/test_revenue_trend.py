@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from core.models import Order, Role, Staff, Store
+from core.models import Order, PurchaseOrder, PurchaseOrderDetail, Category, Product, Role, Staff, Store, Supplier
 
 
 class RevenueTrendApiTests(APITestCase):
@@ -88,3 +88,43 @@ class RevenueTrendApiTests(APITestCase):
         self.client.force_authenticate(user=cashier)
         res = self.client.get(reverse('revenue-trend-report'), {'period': 'week'})
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class RevenueTrendExpenseTests(APITestCase):
+    """PurchaseOrder has no store FK, so expense_total is always chain-wide -- unlike
+    total/order_count, it doesn't change when ?store= is passed."""
+
+    def setUp(self):
+        self.client = APIClient()
+        chain_manager_role = Role.objects.get_or_create(role_name='Chain Manager')[0]
+        self.chain_manager = Staff.objects.create_user(
+            username='trend_expense_mgr', password='password123', full_name='Trend Expense Mgr', role=chain_manager_role,
+        )
+        self.client.force_authenticate(user=self.chain_manager)
+
+        supplier = Supplier.objects.create(supplier_name='ACME Foods', contact_phone='0900000000')
+        category = Category.objects.create(category_name='Snacks')
+        product = Product.objects.create(barcode='PO-1', product_name='Chips', base_price='10000.00', min_threshold=5, category=category)
+
+        self.today = timezone.localdate()
+
+        def make_po(days_ago, qty, unit_cost):
+            po = PurchaseOrder.objects.create(supplier=supplier, order_date=self.today - timedelta(days=days_ago))
+            PurchaseOrderDetail.objects.create(po=po, product=product, order_qty=qty, unit_cost=Decimal(unit_cost))
+
+        make_po(0, 10, '1000.00')  # 10,000 today
+        make_po(3, 5, '2000.00')  # 10,000 three days ago
+        make_po(35, 100, '1.00')  # outside the week/month window
+
+    def test_week_period_expense_total_today(self):
+        res = self.client.get(reverse('revenue-trend-report'), {'period': 'week'})
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        today_point = res.data['points'][-1]
+        self.assertEqual(Decimal(today_point['expense_total']), Decimal('10000.00'))
+
+    def test_week_period_expense_total_ignores_store_param(self):
+        store = Store.objects.create(store_name='Store A', location='HCMC')
+        res = self.client.get(reverse('revenue-trend-report'), {'period': 'week', 'store': store.store_id})
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        today_point = res.data['points'][-1]
+        self.assertEqual(Decimal(today_point['expense_total']), Decimal('10000.00'))

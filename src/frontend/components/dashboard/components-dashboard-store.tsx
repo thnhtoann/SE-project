@@ -13,14 +13,13 @@ import {
     PEAK_HOURS,
     PEAK_HOURS_PREVIOUS_FACTOR,
     PERIOD_MULTIPLIER,
-    SALES_FUNNEL,
     TOP_CUSTOMERS,
     VIP_CUSTOMER,
 } from '@/data/mock-dashboards';
 import { IRootState } from '@/store';
 import { useApi } from '@/lib/hooks/use-api';
 import { currency } from '@/lib/currency';
-import { ReportPeriod, RevenueTrendResponse, StaffRecord, StoreRecord } from '@/types/admin';
+import { ReportPeriod, RevenueTrendResponse, SalesByCategoryResponse, StaffRecord, StoreRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
@@ -59,6 +58,7 @@ const ComponentsDashboardStore = () => {
     }, [branches, branchId]);
 
     const { data: trend } = useApi<RevenueTrendResponse>(branchId ? `/reports/revenue-trend/?period=${period}&store=${branchId}` : null);
+    const { data: categoryData } = useApi<SalesByCategoryResponse>(branchId ? `/reports/sales-by-category/?period=${period}&store=${branchId}` : null);
     // Chain-Manager-only endpoint (see note above) -- degrades to an empty list for a
     // Store Manager rather than breaking the page.
     const { data: staffAll } = useApi<StaffRecord[]>('/staff/');
@@ -84,16 +84,19 @@ const ComponentsDashboardStore = () => {
     const hasData = !!branch && trend !== undefined;
 
     const revenueTrendChart: any = {
-        series: [{ name: t('revenue'), data: (trend?.points ?? []).map((p) => Math.round(Number(p.total))) }],
+        series: [
+            { name: t('income'), data: (trend?.points ?? []).map((p) => Math.round(Number(p.total))) },
+            { name: t('expenses'), data: (trend?.points ?? []).map((p) => Math.round(Number(p.expense_total))) },
+        ],
         options: {
-            chart: { type: 'area', height: 300, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
+            chart: { type: 'line', height: 300, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
             dataLabels: { enabled: false },
             stroke: { curve: 'smooth', width: 2 },
-            colors: ['#00ab55'],
+            colors: ['#00ab55', '#e7515a'],
             xaxis: { categories: (trend?.points ?? []).map((p) => p.label) },
             grid: { borderColor: isDark ? '#191e3a' : '#e0e6ed' },
+            legend: { show: true, position: 'top', horizontalAlign: 'right', fontSize: '13px' },
             tooltip: { theme: isDark ? 'dark' : 'light' },
-            fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05 } },
         },
     };
 
@@ -147,17 +150,17 @@ const ComponentsDashboardStore = () => {
         },
     };
 
-    const funnelChart: any = {
-        series: [{ name: 'Customers', data: SALES_FUNNEL.map((s) => Math.round(s.value * factor * share)) }],
+    const categoryChart: any = {
+        series: [{ name: t('sales_by_category'), data: (categoryData?.categories ?? []).map((c) => Math.round(Number(c.total))) }],
         options: {
             chart: { type: 'bar', height: 360, fontFamily: 'Nunito, sans-serif', toolbar: { show: false } },
             plotOptions: { bar: { horizontal: true, borderRadius: 4, distributed: true, barHeight: '60%' } },
-            colors: ['#4361ee', '#805dca', '#00ab55', '#e2a03f'],
-            dataLabels: { enabled: true, formatter: (val: number) => val.toLocaleString('en-US') },
+            colors: ['#4361ee', '#805dca', '#00ab55', '#e2a03f', '#e7515a', '#2196f3', '#00c1d4'],
+            dataLabels: { enabled: true, formatter: (val: number) => currency(val) },
             legend: { show: false },
-            xaxis: { categories: SALES_FUNNEL.map((s) => s.label) },
+            xaxis: { categories: (categoryData?.categories ?? []).map((c) => c.category) },
             grid: { borderColor: isDark ? '#191e3a' : '#e0e6ed' },
-            tooltip: { theme: isDark ? 'dark' : 'light' },
+            tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => currency(val) } },
         },
     };
 
@@ -281,11 +284,11 @@ const ComponentsDashboardStore = () => {
                         <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <div className="panel">
                                 <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_analytics')}</h5>
-                                {isMounted && <ReactApexChart series={revenueTrendChart.series} options={revenueTrendChart.options} type="area" height={300} />}
+                                {isMounted && <ReactApexChart series={revenueTrendChart.series} options={revenueTrendChart.options} type="line" height={300} />}
                             </div>
                             <div className="panel">
-                                <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_funnel')}</h5>
-                                {isMounted && <ReactApexChart series={funnelChart.series} options={funnelChart.options} type="bar" height={360} />}
+                                <h5 className="mb-5 text-lg font-semibold dark:text-white-light">{t('sales_by_category')}</h5>
+                                {isMounted && <ReactApexChart series={categoryChart.series} options={categoryChart.options} type="bar" height={360} />}
                             </div>
                         </div>
 

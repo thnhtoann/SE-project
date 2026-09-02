@@ -9,7 +9,7 @@ from core.views import (
     RegisterRequestOTPView,
     RegisterVerifyOTPView,
     LoginRequestOTPView,
-    LoginVerifyOTPView, BestWorstSellerView, RevenueTrendView,
+    LoginVerifyOTPView, BestWorstSellerView, RevenueTrendView, SalesByCategoryView,
     PasswordResetRequestOTPView,
     PasswordResetVerifyOTPView,
 )
@@ -52,6 +52,9 @@ urlpatterns = [
 
     # Doanh thu theo thời gian (Analytics/Store dashboards)
     path('api/reports/revenue-trend/', RevenueTrendView.as_view(), name='revenue-trend-report'),
+
+    # Doanh thu theo danh mục (Store dashboard "Sale by Category" panel)
+    path('api/reports/sales-by-category/', SalesByCategoryView.as_view(), name='sales-by-category-report'),
 
     path('api/procurement/', include('forecasting.urls')),
 ]
