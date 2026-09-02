@@ -2,15 +2,29 @@
 
 Rather than duplicating the aggregation logic that already lives in
 core/views.py and forecasting/views.py (revenue buckets, category totals,
-demand forecasts, ...), each function here drives the real DRF view through
-rest_framework.test.APIClient with force_authenticate(). This is the exact
-pattern this codebase's own tests already use (see core/test_revenue_trend.py
-etc.) to call a view in-process as a given user -- it goes through the same
-permission checks and store-scoping the view already has, so the agent can
-never see data a human with that role couldn't also see via the API.
+demand forecasts, ...), each function here drives the real DRF view
+directly: build a request with APIRequestFactory, authenticate it with
+force_authenticate(), and call the view's .as_view() callable. This goes
+through the exact same query/permission/store-scoping logic those views
+already have, so the agent can never see data a human with that role
+couldn't also see via the API -- without duplicating that logic here.
+
+This intentionally does NOT use rest_framework.test.APIClient (an earlier
+version of this file did). APIClient drives the full WSGI/middleware stack,
+including Django's ALLOWED_HOSTS check against the Host header it sends
+('testserver' by default) -- Django's test runner allows that host during
+`manage.py test`, but production ALLOWED_HOSTS does not, so APIClient calls
+here 500'd in production despite passing every test. Calling .as_view()
+directly bypasses Django's middleware chain entirely, which is correct for
+an internal Python-to-Python call like this one -- host validation, CORS,
+CSRF etc. aren't meaningful for it anyway.
 """
-from django.urls import reverse
-from rest_framework.test import APIClient
+from rest_framework.test import APIRequestFactory, force_authenticate
+
+from core.views import BestWorstSellerView, LowStockAlertViewSet, RevenueByChannelView, RevenueTrendView, SalesByCategoryView
+from forecasting.views import ForecastOverviewView
+
+_factory = APIRequestFactory()
 
 
 def resolve_store_scope(user, requested_store_id=None):
@@ -25,12 +39,13 @@ def resolve_store_scope(user, requested_store_id=None):
     return user.store_id
 
 
-def _get(user, url_name, params=None):
-    client = APIClient()
-    client.force_authenticate(user=user)
-    response = client.get(reverse(url_name), params or {})
+def _call(view_callable, user, params=None):
+    request = _factory.get('/', params or {})
+    force_authenticate(request, user=user)
+    response = view_callable(request)
+    response.render()
     if response.status_code >= 400:
-        raise RuntimeError(f"advisor tool call to {url_name} failed ({response.status_code}): {response.data}")
+        raise RuntimeError(f"advisor tool call failed ({response.status_code}): {response.data}")
     return response.data
 
 
@@ -38,25 +53,25 @@ def fetch_revenue_trend(user, store_id, period):
     params = {'period': period}
     if store_id:
         params['store'] = store_id
-    return _get(user, 'revenue-trend-report', params)
+    return _call(RevenueTrendView.as_view(), user, params)
 
 
 def fetch_sales_by_category(user, store_id, period):
     params = {'period': period}
     if store_id:
         params['store'] = store_id
-    return _get(user, 'sales-by-category-report', params)
+    return _call(SalesByCategoryView.as_view(), user, params)
 
 
 def fetch_revenue_by_channel(user, store_id, period):
     params = {'period': period}
     if store_id:
         params['store'] = store_id
-    return _get(user, 'revenue-by-channel-report', params)
+    return _call(RevenueByChannelView.as_view(), user, params)
 
 
 def fetch_sales_performance(user, limit=5):
-    return _get(user, 'sales-performance-report', {'limit': limit})
+    return _call(BestWorstSellerView.as_view(), user, {'limit': limit})
 
 
 def fetch_forecast(user, store_id, action_required_only=True):
@@ -65,11 +80,11 @@ def fetch_forecast(user, store_id, action_required_only=True):
         params['store'] = store_id
     if action_required_only:
         params['action_required'] = 'true'
-    return _get(user, 'demand-forecast', params)
+    return _call(ForecastOverviewView.as_view(), user, params)
 
 
 def fetch_low_stock_alerts(user, store_id):
     # LowStockAlertViewSet self-scopes off request.user, same as ForecastOverviewView --
     # store_id here is only for the response shape, not passed as a query param.
     del store_id
-    return _get(user, 'low-stock-alert-list')
+    return _call(LowStockAlertViewSet.as_view({'get': 'list'}), user)
