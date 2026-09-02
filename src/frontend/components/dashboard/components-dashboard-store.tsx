@@ -30,6 +30,31 @@ import { BorderBeam } from 'border-beam';
 
 type StoreTab = 'performance' | 'customers';
 
+// Transitions.dev "Streaming text" (https://transitions.dev/transitions/streaming-text/)
+// -- reveals `text` one word at a time via the .t-stream-w/.is-in CSS pair
+// (styles/tailwind.css), timed to --stream-gap so it reads like the AI
+// advisor is composing the recommendation live.
+const StreamingText = ({ text }: { text: string }) => {
+    const words = useMemo(() => text.split(' '), [text]);
+    const [visibleCount, setVisibleCount] = useState(0);
+
+    useEffect(() => {
+        setVisibleCount(0);
+        const timers = words.map((_, i) => window.setTimeout(() => setVisibleCount((v) => Math.max(v, i + 1)), i * 60));
+        return () => timers.forEach((id) => window.clearTimeout(id));
+    }, [words]);
+
+    return (
+        <>
+            {words.map((word, i) => (
+                <span key={i} className={`t-stream-w ${i < visibleCount ? 'is-in' : ''}`}>
+                    {word}{' '}
+                </span>
+            ))}
+        </>
+    );
+};
+
 const ComponentsDashboardStore = () => {
     const { t } = getTranslation();
     const isDark = useSelector((state: IRootState) => state.themeConfig.theme === 'dark' || state.themeConfig.isDarkMode);
@@ -41,10 +66,23 @@ const ComponentsDashboardStore = () => {
     const [advisorLoading, setAdvisorLoading] = useState(false);
     const [advisorResult, setAdvisorResult] = useState<AdvisorAnalyzeResponse | null>(null);
     const [advisorError, setAdvisorError] = useState('');
+    const [advisorPanelOpen, setAdvisorPanelOpen] = useState(false);
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
+
+    // Mounts the results panel closed, then flips it open on the next frame so
+    // the Transitions.dev "Panel reveal" CSS (styles/tailwind.css, .t-panel-slide)
+    // actually animates in rather than appearing pre-opened.
+    useEffect(() => {
+        if (!advisorResult && !advisorError) {
+            setAdvisorPanelOpen(false);
+            return;
+        }
+        const raf = requestAnimationFrame(() => setAdvisorPanelOpen(true));
+        return () => cancelAnimationFrame(raf);
+    }, [advisorResult, advisorError]);
 
     // core.StoreViewSet is Chain-Manager-only even for GET, so a Store Manager viewing this
     // page (RevenueTrendView itself allows Store Manager) falls back to just their own store
@@ -374,67 +412,71 @@ const ComponentsDashboardStore = () => {
                         </div>
 
                         {(advisorError || advisorResult) && (
-                            <div className="panel mb-5">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h5 className="text-lg font-semibold dark:text-white-light">{t('ai_advisor_results')}</h5>
-                                    <button
-                                        type="button"
-                                        className="text-white-dark hover:text-danger"
-                                        onClick={() => {
-                                            setAdvisorResult(null);
-                                            setAdvisorError('');
-                                        }}
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-
-                                {advisorError && <div className="rounded border border-danger bg-danger-light px-4 py-3 text-danger">{advisorError}</div>}
-
-                                {advisorResult && (
-                                    <div className="space-y-4">
-                                        {!advisorResult.recommendations_verified && <p className="text-xs text-warning">{t('ai_advisor_unverified_notice')}</p>}
-
-                                        {advisorResult.anomalies.length > 0 && (
-                                            <div className="space-y-2">
-                                                {advisorResult.anomalies.map((a, i) => (
-                                                    <div
-                                                        key={i}
-                                                        className={`rounded px-3 py-2 text-sm ${a.severity === 'high' ? 'bg-danger-light text-danger' : 'bg-warning-light text-warning'}`}
-                                                    >
-                                                        {a.detail}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {advisorResult.recommendations.length === 0 ? (
-                                            <p className="text-sm text-white-dark">{t('ai_advisor_no_recommendations')}</p>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {advisorResult.recommendations.map((r, i) => (
-                                                    <div key={i} className="rounded-md border border-[#ebedf2] p-3 dark:border-[#191e3a]">
-                                                        <div className="mb-1 flex items-center gap-2">
-                                                            <span
-                                                                className={`badge ${
-                                                                    r.priority === 'high'
-                                                                        ? 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light'
-                                                                        : r.priority === 'medium'
-                                                                          ? 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light'
-                                                                          : 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light'
-                                                                }`}
-                                                            >
-                                                                {r.priority}
-                                                            </span>
-                                                            <h6 className="font-semibold dark:text-white-light">{r.title}</h6>
-                                                        </div>
-                                                        <p className="text-sm text-white-dark">{r.reasoning}</p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
+                            <div className="mb-5 overflow-hidden">
+                                <div className="panel t-panel-slide" data-open={advisorPanelOpen}>
+                                    <div className="mb-4 flex items-center justify-between">
+                                        <h5 className="text-lg font-semibold dark:text-white-light">{t('ai_advisor_results')}</h5>
+                                        <button
+                                            type="button"
+                                            className="text-white-dark hover:text-danger"
+                                            onClick={() => {
+                                                setAdvisorResult(null);
+                                                setAdvisorError('');
+                                            }}
+                                        >
+                                            ✕
+                                        </button>
                                     </div>
-                                )}
+
+                                    {advisorError && <div className="rounded border border-danger bg-danger-light px-4 py-3 text-danger">{advisorError}</div>}
+
+                                    {advisorResult && (
+                                        <div className="space-y-4">
+                                            {!advisorResult.recommendations_verified && <p className="text-xs text-warning">{t('ai_advisor_unverified_notice')}</p>}
+
+                                            {advisorResult.anomalies.length > 0 && (
+                                                <div className="space-y-2">
+                                                    {advisorResult.anomalies.map((a, i) => (
+                                                        <div
+                                                            key={i}
+                                                            className={`rounded px-3 py-2 text-sm ${a.severity === 'high' ? 'bg-danger-light text-danger' : 'bg-warning-light text-warning'}`}
+                                                        >
+                                                            {a.detail}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {advisorResult.recommendations.length === 0 ? (
+                                                <p className="text-sm text-white-dark">{t('ai_advisor_no_recommendations')}</p>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    {advisorResult.recommendations.map((r, i) => (
+                                                        <div key={i} className="rounded-md border border-[#ebedf2] p-3 dark:border-[#191e3a]">
+                                                            <div className="mb-1 flex items-center gap-2">
+                                                                <span
+                                                                    className={`badge ${
+                                                                        r.priority === 'high'
+                                                                            ? 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light'
+                                                                            : r.priority === 'medium'
+                                                                              ? 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light'
+                                                                              : 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light'
+                                                                    }`}
+                                                                >
+                                                                    {r.priority}
+                                                                </span>
+                                                                <h6 className="font-semibold dark:text-white-light">{r.title}</h6>
+                                                            </div>
+                                                            <p className="text-sm text-white-dark">
+                                                                <StreamingText text={r.reasoning} />
+                                                            </p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
 
