@@ -226,7 +226,7 @@ export interface StoreInventoryApiRecord {
 
 // Mirrors core.Product (fields='__all__') -- named ...ApiRecord for the
 // same reason as BatchApiRecord above (category is a plain FK id here,
-// not a name string, and there's no supplier/photo/tags/etc.).
+// not a name string, and there's still no supplier/tags/etc.).
 export interface ProductApiRecord {
     product_id: number;
     barcode: string;
@@ -234,6 +234,7 @@ export interface ProductApiRecord {
     base_price: string;
     min_threshold: number;
     category: number;
+    image_url: string | null;
 }
 
 export interface StaffRecord {

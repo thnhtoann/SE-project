@@ -124,9 +124,14 @@ const ComponentsInventoryList = () => {
                 sortable: true,
                 sortValue: (p) => p.product_name,
                 render: (p) => (
-                    <div>
-                        <div className="font-semibold">{p.product_name}</div>
-                        <div className="text-xs text-white-dark">{p.barcode}</div>
+                    <div className="flex items-center gap-3">
+                        <div className="grid h-9 w-9 shrink-0 place-content-center overflow-hidden rounded-md border border-white-light text-white-dark dark:border-[#1b2e4b]">
+                            {p.photo ? <img src={p.photo} alt={p.product_name} className="h-full w-full object-cover" /> : <IconBox className="h-4 w-4" />}
+                        </div>
+                        <div>
+                            <div className="font-semibold">{p.product_name}</div>
+                            <div className="text-xs text-white-dark">{p.barcode}</div>
+                        </div>
                     </div>
                 ),
             },

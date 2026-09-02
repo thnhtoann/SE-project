@@ -1,8 +1,10 @@
 import hashlib
+import os
 import random
 import secrets
 from datetime import timedelta
 from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.db import models, transaction, IntegrityError
 from django.utils import timezone
 from django.core.mail import send_mail
@@ -444,6 +446,29 @@ class ProductViewSet(viewsets.ModelViewSet):
         if self.request.method in SAFE_METHODS:
             return [IsCashier()]
         return [(IsStoreManager | IsChainManager)()]
+
+    MAX_IMAGE_SIZE = 5 * 1024 * 1024
+
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser], url_path='upload-image')
+    def upload_image(self, request, pk=None):
+        """Saves the uploaded file to local disk (see Product.image_url's comment --
+        this is lost on the next Railway redeploy, same tradeoff as StaffDocument) and
+        points image_url at it. Not a model FileField: image_url also has to hold
+        externally-sourced image links for products no one has uploaded a photo for."""
+        product = self.get_object()
+        file = request.FILES.get('file')
+        if not file:
+            return Response({"file": ["No file uploaded."]}, status=status.HTTP_400_BAD_REQUEST)
+        if not (file.content_type or '').startswith('image/'):
+            return Response({"file": ["File must be an image."]}, status=status.HTTP_400_BAD_REQUEST)
+        if file.size > self.MAX_IMAGE_SIZE:
+            return Response({"file": ["Image must be under 5MB."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        ext = os.path.splitext(file.name)[1] or '.jpg'
+        saved_path = default_storage.save(f'product_images/product_{product.product_id}{ext}', file)
+        product.image_url = request.build_absolute_uri(default_storage.url(saved_path))
+        product.save(update_fields=['image_url'])
+        return Response(ProductSerializer(product).data, status=status.HTTP_200_OK)
 
 
 class BatchViewSet(viewsets.ModelViewSet):

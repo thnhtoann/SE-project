@@ -66,5 +66,9 @@ urlpatterns = [
     path('api/procurement/', include('forecasting.urls')),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Django's built-in file server, not gated behind DEBUG: this app has no CDN/object
+# storage in front of MEDIA_ROOT (see the note on that setting), so without this,
+# uploaded files like Product.image_url would 404 in production. Fine at this app's
+# scale (occasional product photos); swap for a real static/object-storage front end
+# before traffic or upload volume make django.views.static.serve a bottleneck.
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

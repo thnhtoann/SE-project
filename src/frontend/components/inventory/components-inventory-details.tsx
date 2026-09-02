@@ -32,7 +32,10 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
     const [discountSubmitting, setDiscountSubmitting] = useState(false);
 
     const discountSectionRef = useRef<HTMLDivElement>(null);
+    const imageInputRef = useRef<HTMLInputElement>(null);
     const searchParams = useSearchParams();
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [imageError, setImageError] = useState('');
 
     const { data, isLoading: loading, mutate: reload } = useSWR(['product-detail', productId], () =>
         Promise.all([fetchProductById(productId), apiFetch<DiscountApiRecord[]>(`/discounts/?product=${productId}&is_active=true`).catch(() => [] as DiscountApiRecord[])]),
@@ -87,6 +90,32 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
         apiFetch(`/discounts/${activeDiscountId}/`, { method: 'PATCH', body: { is_active: false } }).then(() => reload());
     };
 
+    const changeImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImageError('');
+
+        if (file.size > 5 * 1024 * 1024) {
+            setImageError(t('error_image_too_large'));
+            if (imageInputRef.current) imageInputRef.current.value = '';
+            return;
+        }
+
+        setUploadingImage(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            await apiFetch(`/products/${productId}/upload-image/`, { method: 'POST', body: formData });
+            await reload();
+        } catch (err) {
+            const body = err instanceof ApiError ? (err.body as { file?: string[]; detail?: string } | null) : null;
+            setImageError(body?.file?.[0] ?? body?.detail ?? t('error_upload_image_failed'));
+        } finally {
+            setUploadingImage(false);
+            if (imageInputRef.current) imageInputRef.current.value = '';
+        }
+    };
+
     if (loading) {
         return <div className="panel py-10 text-center text-white-dark">{t('loading')}</div>;
     }
@@ -123,8 +152,30 @@ const ComponentsInventoryDetails = ({ productId }: { productId: number }) => {
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
                     <div className="panel lg:col-span-2">
                         <div className="flex flex-col gap-5 sm:flex-row">
-                            <div className="grid h-32 w-32 shrink-0 place-content-center rounded-md border border-white-light text-white-dark dark:border-[#1b2e4b]">
-                                <IconBox className="h-10 w-10" />
+                            <div className="shrink-0">
+                                <label
+                                    htmlFor="productImageInput"
+                                    className="group relative grid h-32 w-32 cursor-pointer place-content-center overflow-hidden rounded-md border border-white-light text-white-dark dark:border-[#1b2e4b]"
+                                >
+                                    {product.photo ? (
+                                        <img src={product.photo} alt={product.product_name} className="h-full w-full object-cover" />
+                                    ) : (
+                                        <IconBox className="h-10 w-10" />
+                                    )}
+                                    <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-center text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                                        {uploadingImage ? t('uploading') : t('change_photo')}
+                                    </span>
+                                </label>
+                                <input
+                                    id="productImageInput"
+                                    ref={imageInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={changeImage}
+                                    disabled={uploadingImage}
+                                />
+                                {imageError && <p className="mt-2 w-32 text-xs text-danger">{imageError}</p>}
                             </div>
                             <div className="flex-1">
                                 <div className="flex flex-wrap items-center gap-3">

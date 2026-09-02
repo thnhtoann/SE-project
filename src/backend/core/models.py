@@ -101,6 +101,10 @@ class Product(models.Model):
     base_price = models.DecimalField(max_digits=10, decimal_places=2)
     min_threshold = models.IntegerField()
     category = models.ForeignKey(Category, on_delete=models.PROTECT)
+    # A URL, not a stored file: either an external image link, or the URL of a file the
+    # upload-image action saved to local disk (see that view for why MEDIA storage is
+    # ephemeral on Railway -- URLField keeps the pointer separate from the storage backend).
+    image_url = models.URLField(max_length=500, blank=True, null=True)
 
     def __str__(self):
         return self.product_name

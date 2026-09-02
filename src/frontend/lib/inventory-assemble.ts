@@ -55,7 +55,7 @@ export const assembleProducts = (
             base_price: basePrice,
             min_threshold: p.min_threshold,
             category: categoryName[p.category] ?? '—',
-            photo: '',
+            photo: p.image_url ?? '',
             unit: '',
             tags: [],
             description: '',

@@ -7,7 +7,7 @@ import { currency } from '@/lib/currency';
 import { CategoryRecord, ProductApiRecord } from '@/types/admin';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface FormState {
     productName: string;
@@ -44,6 +44,31 @@ const ComponentsInventoryAddForm = () => {
     const [newCategoryName, setNewCategoryName] = useState('');
     const [categoryError, setCategoryError] = useState('');
     const [creatingCategory, setCreatingCategory] = useState(false);
+
+    const imageInputRef = useRef<HTMLInputElement>(null);
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+    const [imageError, setImageError] = useState('');
+
+    useEffect(() => {
+        // Revoke the previous object URL whenever it's replaced or the component unmounts.
+        return () => {
+            if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+        };
+    }, [imagePreviewUrl]);
+
+    const changeImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImageError('');
+        if (file.size > 5 * 1024 * 1024) {
+            setImageError(t('error_image_too_large'));
+            if (imageInputRef.current) imageInputRef.current.value = '';
+            return;
+        }
+        setImageFile(file);
+        setImagePreviewUrl(URL.createObjectURL(file));
+    };
 
     const changeValue = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { id, value } = e.target;
@@ -104,6 +129,14 @@ const ComponentsInventoryAddForm = () => {
                 });
             }
 
+            if (imageFile) {
+                const formData = new FormData();
+                formData.append('file', imageFile);
+                // Best-effort: the product itself was already created successfully, so an
+                // image upload failure shouldn't block the user from seeing that.
+                await apiFetch(`/products/${product.product_id}/upload-image/`, { method: 'POST', body: formData }).catch(() => {});
+            }
+
             setCreatedProductId(product.product_id);
         } catch (err) {
             if (err instanceof ApiError) {
@@ -160,9 +193,17 @@ const ComponentsInventoryAddForm = () => {
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
                     <div className="panel">
                         <h6 className="mb-5 text-lg font-bold">{t('preview')}</h6>
-                        <div className="grid h-32 w-32 mx-auto place-content-center rounded-md border border-dashed border-white-light text-white-dark dark:border-[#1b2e4b]">
-                            <IconBox className="h-10 w-10" />
-                        </div>
+                        <label
+                            htmlFor="productImageInput"
+                            className="group relative mx-auto grid h-32 w-32 cursor-pointer place-content-center overflow-hidden rounded-md border border-dashed border-white-light text-white-dark dark:border-[#1b2e4b]"
+                        >
+                            {imagePreviewUrl ? <img src={imagePreviewUrl} alt="" className="h-full w-full object-cover" /> : <IconBox className="h-10 w-10" />}
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-center text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                                {t('change_photo')}
+                            </span>
+                        </label>
+                        <input id="productImageInput" ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={changeImage} />
+                        {imageError && <p className="mt-2 text-center text-xs text-danger">{imageError}</p>}
                         <div className="mt-4 text-center">
                             <div className="font-semibold">{form.productName || t('product_name')}</div>
                             <div className="mt-2 text-xl font-bold">{price > 0 ? currency(price) : '₫0'}</div>
