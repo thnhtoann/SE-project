@@ -642,8 +642,8 @@ const ComponentsDashboardStore = () => {
                                 title={t('run_ai_advisor')}
                                 aria-expanded={advisorOpen}
                                 aria-label={t('run_ai_advisor')}
-                                className="pointer-events-auto touch-none cursor-grab rounded-full shadow-xl transition-transform hover:scale-110 active:cursor-grabbing disabled:cursor-wait"
-                                style={{ width: 64, height: 64 }}
+                                className="pointer-events-auto touch-none cursor-grab rounded-full bg-transparent shadow-xl transition-transform hover:scale-110 active:cursor-grabbing disabled:cursor-wait"
+                                style={{ width: 64, height: 64, backgroundColor: 'transparent' }}
                             >
                                 <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
                             </button>
