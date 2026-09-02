@@ -22,7 +22,7 @@ import {
 } from '@/types/admin';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
 import { ThinkingOrb } from 'thinking-orbs';
@@ -66,23 +66,34 @@ const ComponentsDashboardStore = () => {
     const [advisorLoading, setAdvisorLoading] = useState(false);
     const [advisorResult, setAdvisorResult] = useState<AdvisorAnalyzeResponse | null>(null);
     const [advisorError, setAdvisorError] = useState('');
-    const [advisorPanelOpen, setAdvisorPanelOpen] = useState(false);
+    // Popup open/close is independent of whether a result exists -- toggling
+    // the orb only re-fetches when the cached result no longer matches the
+    // current branch+period (see toggleAdvisor below).
+    const [advisorOpen, setAdvisorOpen] = useState(false);
+    const [advisorResultKey, setAdvisorResultKey] = useState<string | null>(null);
+    const advisorRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
 
-    // Mounts the results panel closed, then flips it open on the next frame so
-    // the Transitions.dev "Panel reveal" CSS (styles/tailwind.css, .t-panel-slide)
-    // actually animates in rather than appearing pre-opened.
+    // Transitions.dev "Dropdown menu morph" reference behavior: close on
+    // outside click or Escape while open.
     useEffect(() => {
-        if (!advisorResult && !advisorError) {
-            setAdvisorPanelOpen(false);
-            return;
-        }
-        const raf = requestAnimationFrame(() => setAdvisorPanelOpen(true));
-        return () => cancelAnimationFrame(raf);
-    }, [advisorResult, advisorError]);
+        if (!advisorOpen) return;
+        const onDown = (e: MouseEvent) => {
+            if (advisorRef.current && !advisorRef.current.contains(e.target as Node)) setAdvisorOpen(false);
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setAdvisorOpen(false);
+        };
+        document.addEventListener('click', onDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('click', onDown);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [advisorOpen]);
 
     // core.StoreViewSet is Chain-Manager-only even for GET, so a Store Manager viewing this
     // page (RevenueTrendView itself allows Store Manager) falls back to just their own store
@@ -131,8 +142,11 @@ const ComponentsDashboardStore = () => {
     // percentage against a non-positive base is undefined/misleading, not "infinite growth".
     const revenueChangePct = previousBranchProfit > 0 ? ((branchProfit - previousBranchProfit) / previousBranchProfit) * 100 : null;
 
+    const advisorKey = branchId !== null ? `${branchId}-${period}` : null;
+
     const runAdvisor = async () => {
         if (advisorLoading || !branchId) return;
+        const key = advisorKey;
         setAdvisorLoading(true);
         setAdvisorError('');
         try {
@@ -141,12 +155,30 @@ const ComponentsDashboardStore = () => {
                 body: { period, store: branchId },
             });
             setAdvisorResult(result);
+            setAdvisorResultKey(key);
         } catch (err) {
             setAdvisorResult(null);
             setAdvisorError(err instanceof ApiError ? ((err.body as { detail?: string } | null)?.detail ?? err.message) : t('error_advisor_failed'));
+            setAdvisorResultKey(key);
         } finally {
             setAdvisorLoading(false);
         }
+    };
+
+    // Toggling the orb only re-fetches when the popup is closed AND the cached
+    // result (if any) is for a different branch/period than the one currently
+    // selected -- reopening after just closing, or re-clicking without
+    // changing the branch/period selector, reuses the cached result instead
+    // of calling /advisor/analyze/ again.
+    const toggleAdvisor = () => {
+        if (advisorOpen) {
+            setAdvisorOpen(false);
+            return;
+        }
+        setAdvisorOpen(true);
+        if (advisorLoading) return;
+        if (advisorResultKey === advisorKey && (advisorResult || advisorError)) return;
+        runAdvisor();
     };
 
     const branchMembers = MEMBERSHIP_TIERS.map((t) => Math.round(t.count * share));
@@ -365,16 +397,80 @@ const ComponentsDashboardStore = () => {
                         <div className="mb-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
                             <BorderBeam size="md" colorVariant="ocean">
                                 <div className="panel relative bg-neutral-800 text-white">
-                                    <button
-                                        type="button"
-                                        onClick={runAdvisor}
-                                        disabled={advisorLoading}
-                                        title={t('run_ai_advisor')}
-                                        aria-label={t('run_ai_advisor')}
-                                        className="absolute right-4 top-4 rounded-full transition-transform hover:scale-110 disabled:cursor-wait"
+                                    <div
+                                        ref={advisorRef}
+                                        className="t-morph t-morph--advisor absolute right-4 top-4"
+                                        data-open={advisorOpen ? 'true' : 'false'}
                                     >
-                                        <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
-                                    </button>
+                                        <div className="t-morph-menu rounded-2xl bg-neutral-900 p-4 text-sm shadow-2xl">
+                                            {advisorError && (
+                                                <div className="rounded border border-danger bg-danger-light px-3 py-2 text-xs text-danger">{advisorError}</div>
+                                            )}
+                                            {advisorLoading && !advisorResult && !advisorError && (
+                                                <p className="w-fit animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-white/30 via-white to-white/30 bg-clip-text text-xs font-semibold text-transparent">
+                                                    {t('thinking_ellipsis')}
+                                                </p>
+                                            )}
+                                            {advisorResult && (
+                                                <div className="space-y-3">
+                                                    {!advisorResult.recommendations_verified && <p className="text-xs text-warning">{t('ai_advisor_unverified_notice')}</p>}
+                                                    {advisorResult.anomalies.length > 0 && (
+                                                        <div className="space-y-2">
+                                                            {advisorResult.anomalies.map((a, i) => (
+                                                                <div
+                                                                    key={i}
+                                                                    className={`rounded px-3 py-2 text-xs ${a.severity === 'high' ? 'bg-danger-light text-danger' : 'bg-warning-light text-warning'}`}
+                                                                >
+                                                                    {a.detail}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    {advisorResult.recommendations.length === 0 ? (
+                                                        <p className="text-xs text-white/60">{t('ai_advisor_no_recommendations')}</p>
+                                                    ) : (
+                                                        <div className="space-y-3">
+                                                            {advisorResult.recommendations.map((r, i) => (
+                                                                <div key={i} className="rounded-md border border-white/10 p-3">
+                                                                    <div className="mb-1 flex items-center gap-2">
+                                                                        <span
+                                                                            className={`badge ${
+                                                                                r.priority === 'high'
+                                                                                    ? 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light'
+                                                                                    : r.priority === 'medium'
+                                                                                      ? 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light'
+                                                                                      : 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light'
+                                                                            }`}
+                                                                        >
+                                                                            {r.priority}
+                                                                        </span>
+                                                                        <h6 className="text-xs font-semibold">{r.title}</h6>
+                                                                    </div>
+                                                                    <p className="text-xs text-white/70">
+                                                                        <StreamingText text={r.reasoning} />
+                                                                    </p>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (!advisorOpen) toggleAdvisor();
+                                            }}
+                                            disabled={advisorLoading}
+                                            title={t('run_ai_advisor')}
+                                            aria-expanded={advisorOpen}
+                                            aria-label={t('run_ai_advisor')}
+                                            className="t-morph-plus rounded-full transition-transform hover:scale-110 disabled:cursor-wait"
+                                        >
+                                            <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
+                                        </button>
+                                    </div>
                                     <h6 className="text-[13px] opacity-90">{t('branch_profit')}</h6>
                                     <p className="mt-2 text-2xl font-semibold">{currency(branchProfit)}</p>
                                     <p className="mt-1 text-xs opacity-75">
@@ -388,11 +484,6 @@ const ComponentsDashboardStore = () => {
                                                 {Math.abs(revenueChangePct).toFixed(1)}%
                                             </span>
                                             <span className="text-white opacity-75">{t('vs_previous_period')}</span>
-                                        </p>
-                                    )}
-                                    {advisorLoading && (
-                                        <p className="mt-2 w-fit animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-white/30 via-white to-white/30 bg-clip-text text-xs font-semibold text-transparent">
-                                            {t('thinking_ellipsis')}
                                         </p>
                                     )}
                                 </div>
@@ -410,75 +501,6 @@ const ComponentsDashboardStore = () => {
                                 </div>
                             </div>
                         </div>
-
-                        {(advisorError || advisorResult) && (
-                            <div className="mb-5 overflow-hidden">
-                                <div className="panel t-panel-slide" data-open={advisorPanelOpen}>
-                                    <div className="mb-4 flex items-center justify-between">
-                                        <h5 className="text-lg font-semibold dark:text-white-light">{t('ai_advisor_results')}</h5>
-                                        <button
-                                            type="button"
-                                            className="text-white-dark hover:text-danger"
-                                            onClick={() => {
-                                                setAdvisorResult(null);
-                                                setAdvisorError('');
-                                            }}
-                                        >
-                                            ✕
-                                        </button>
-                                    </div>
-
-                                    {advisorError && <div className="rounded border border-danger bg-danger-light px-4 py-3 text-danger">{advisorError}</div>}
-
-                                    {advisorResult && (
-                                        <div className="space-y-4">
-                                            {!advisorResult.recommendations_verified && <p className="text-xs text-warning">{t('ai_advisor_unverified_notice')}</p>}
-
-                                            {advisorResult.anomalies.length > 0 && (
-                                                <div className="space-y-2">
-                                                    {advisorResult.anomalies.map((a, i) => (
-                                                        <div
-                                                            key={i}
-                                                            className={`rounded px-3 py-2 text-sm ${a.severity === 'high' ? 'bg-danger-light text-danger' : 'bg-warning-light text-warning'}`}
-                                                        >
-                                                            {a.detail}
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-
-                                            {advisorResult.recommendations.length === 0 ? (
-                                                <p className="text-sm text-white-dark">{t('ai_advisor_no_recommendations')}</p>
-                                            ) : (
-                                                <div className="space-y-3">
-                                                    {advisorResult.recommendations.map((r, i) => (
-                                                        <div key={i} className="rounded-md border border-[#ebedf2] p-3 dark:border-[#191e3a]">
-                                                            <div className="mb-1 flex items-center gap-2">
-                                                                <span
-                                                                    className={`badge ${
-                                                                        r.priority === 'high'
-                                                                            ? 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light'
-                                                                            : r.priority === 'medium'
-                                                                              ? 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light'
-                                                                              : 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light'
-                                                                    }`}
-                                                                >
-                                                                    {r.priority}
-                                                                </span>
-                                                                <h6 className="font-semibold dark:text-white-light">{r.title}</h6>
-                                                            </div>
-                                                            <p className="text-sm text-white-dark">
-                                                                <StreamingText text={r.reasoning} />
-                                                            </p>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
 
                         <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
                             <div className="panel">

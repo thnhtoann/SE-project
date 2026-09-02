@@ -415,7 +415,6 @@
     "vs_previous_period": "so với kỳ trước",
     "run_ai_advisor": "Chạy AI tư vấn",
     "error_advisor_failed": "Không thể chạy AI tư vấn. Vui lòng thử lại.",
-    "ai_advisor_results": "AI tư vấn",
     "ai_advisor_unverified_notice": "Các lời khuyên này chưa được xác minh đầy đủ với số liệu gốc — hãy kiểm tra lại trước khi áp dụng.",
     "ai_advisor_no_recommendations": "Không có lời khuyên nào cho kỳ này.",
     "thinking_ellipsis": "Đang suy nghĩ...",
