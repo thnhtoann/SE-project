@@ -33,6 +33,12 @@ LAZADA_AUTHORIZE_PAGE_URL = os.environ.get('LAZADA_AUTHORIZE_PAGE_URL', 'https:/
 LAZADA_REDIRECT_URI = os.environ.get('LAZADA_REDIRECT_URI', 'http://localhost:8000/api/lazada/callback/')
 FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000')
 
+# Google AI Studio (Gemini) — powers the revenue-advisor LangGraph agent (see
+# advisor app). Left blank by default; advisor/graph.py raises a clear error
+# at call time (not import time) if a request needs it and it's unset.
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
@@ -62,6 +68,7 @@ INSTALLED_APPS = [
     'omnichannel',
     'pos',
     'forecasting',
+    'advisor',
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',

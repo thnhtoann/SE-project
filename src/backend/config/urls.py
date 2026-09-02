@@ -64,6 +64,9 @@ urlpatterns = [
     path('api/reports/peak-hours/', PeakHoursView.as_view(), name='peak-hours-report'),
 
     path('api/procurement/', include('forecasting.urls')),
+
+    # Doanh thu + lời khuyên kinh doanh (agent LangGraph + Gemini)
+    path('api/advisor/', include('advisor.urls')),
 ]
 
 # Django's built-in file server, not gated behind DEBUG: this app has no CDN/object

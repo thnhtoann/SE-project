@@ -13,3 +13,6 @@ prophet>=1.1.6
 pandas>=2.0,<3
 cmdstanpy>=1.2,<2
 numpy>=1.22,<2.0
+langgraph>=0.2,<0.3
+langchain-google-genai>=2.0,<3
+google-genai>=0.3,<1
