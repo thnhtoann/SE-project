@@ -122,7 +122,28 @@ class StoreViewSet(viewsets.ModelViewSet):
 class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.all()
     serializer_class = StaffSerializer
-    permission_classes = [IsChainManager] # Chỉ Chain Manager mới được tạo nhân viên mới
+
+    def get_permissions(self):
+        # Store Manager can view (their own store's) staff; only Chain
+        # Manager/Admin can create/edit/delete staff records.
+        if self.request.method in SAFE_METHODS:
+            return [(IsStoreManager | IsChainManager)()]
+        return [IsChainManager()]
+
+    def get_queryset(self):
+        queryset = Staff.objects.all()
+        user = self.request.user
+        # Same store-scoping convention as StoreInventoryViewSet: Chain
+        # Manager/Admin can browse any store (optionally narrowed via
+        # ?store=<id>) or everyone chain-wide when omitted; Store Manager is
+        # locked to their own store's staff regardless of ?store=.
+        if user.role and user.role.role_name in ('Chain Manager', 'Admin'):
+            store_id = self.request.query_params.get('store')
+            if store_id:
+                queryset = queryset.filter(store_id=store_id)
+        else:
+            queryset = queryset.filter(store_id=user.store_id)
+        return queryset
 
 
 class StaffScopedViewSet(viewsets.ModelViewSet):

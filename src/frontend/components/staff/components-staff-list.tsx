@@ -8,10 +8,12 @@ import IconStar from '@/components/icon/icon-star';
 import IconUserPlus from '@/components/icon/icon-user-plus';
 import IconUsers from '@/components/icon/icon-users';
 import { apiFetch, ApiError } from '@/lib/api-client';
-import { StaffPerformanceStatus, StaffRecord } from '@/types/admin';
+import { StaffPerformanceStatus, StaffRecord, StoreRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
+import { IRootState } from '@/store';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 const performanceBadgeClass: Record<StaffPerformanceStatus, string> = {
     Excellent: 'bg-success-light text-success dark:bg-success dark:text-success-light',
@@ -29,14 +31,24 @@ const currency = (value: number) => (value > 0 ? `₫${value.toLocaleString('en-
 
 const ComponentsStaffList = () => {
     const { t } = getTranslation();
+    const role = useSelector((state: IRootState) => state.session.role);
+    const isChainManager = role === 'Chain Manager' || role === 'Admin';
+
     const [staff, setStaff] = useState<StaffRecord[]>([]);
+    const [stores, setStores] = useState<StoreRecord[]>([]);
+    const [selectedStoreId, setSelectedStoreId] = useState('');
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [search, setSearch] = useState('');
 
     useEffect(() => {
         let cancelled = false;
-        apiFetch<StaffRecord[]>('/staff/')
+        // Store Manager is locked server-side to their own store no matter what's
+        // requested here; ?store= only ever does something for a Chain Manager/Admin
+        // using the store picker below.
+        const staffPath = isChainManager && selectedStoreId ? `/staff/?store=${selectedStoreId}` : '/staff/';
+
+        apiFetch<StaffRecord[]>(staffPath)
             .then((data) => {
                 if (!cancelled) setStaff(data);
             })
@@ -46,11 +58,22 @@ const ComponentsStaffList = () => {
             .finally(() => {
                 if (!cancelled) setLoading(false);
             });
+
+        if (isChainManager) {
+            apiFetch<StoreRecord[]>('/stores/')
+                .then((data) => {
+                    if (!cancelled) setStores(data);
+                })
+                .catch(() => {
+                    if (!cancelled) setStores([]);
+                });
+        }
+
         return () => {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [isChainManager, selectedStoreId]);
 
     const filteredStaff = staff.filter(
         (s) => s.full_name.toLowerCase().includes(search.toLowerCase()) || (s.store_name ?? '').toLowerCase().includes(search.toLowerCase()),
@@ -127,6 +150,16 @@ const ComponentsStaffList = () => {
                             <IconUserPlus className="ltr:mr-2 rtl:ml-2" />
                             {t('add_staff')}
                         </Link>
+                        {isChainManager && (
+                            <select className="form-select w-auto" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)}>
+                                <option value="">{t('all_stores')}</option>
+                                {stores.map((s) => (
+                                    <option key={s.store_id} value={s.store_id}>
+                                        {s.store_name}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                         <div className="relative">
                             <input
                                 type="text"
