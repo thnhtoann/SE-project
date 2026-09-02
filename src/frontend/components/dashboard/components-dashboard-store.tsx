@@ -19,8 +19,22 @@ import ReactApexChart from 'react-apexcharts';
 import { useSelector } from 'react-redux';
 import { ThinkingOrb } from 'thinking-orbs';
 import { BorderBeam } from 'border-beam';
+import { Liquid } from 'liquid-gooey';
 
 type StoreTab = 'performance' | 'customers';
+
+const ADVISOR_ORB_SIZE = 64;
+const ADVISOR_EDGE_MARGIN = 16;
+
+// Never leave the widget floating mid-screen -- snap x to whichever
+// vertical screen edge is nearer, keeping y wherever it was dropped.
+const snapToNearestEdge = (x: number, y: number) => {
+    const nearLeft = x + ADVISOR_ORB_SIZE / 2 < window.innerWidth / 2;
+    return {
+        x: nearLeft ? ADVISOR_EDGE_MARGIN : window.innerWidth - ADVISOR_ORB_SIZE - ADVISOR_EDGE_MARGIN,
+        y: Math.min(Math.max(y, ADVISOR_EDGE_MARGIN), window.innerHeight - ADVISOR_ORB_SIZE - ADVISOR_EDGE_MARGIN),
+    };
+};
 
 // Transitions.dev "Streaming text" (https://transitions.dev/transitions/streaming-text/)
 // -- reveals `text` one word at a time via the .t-stream-w/.is-in CSS pair
@@ -75,9 +89,10 @@ const ComponentsDashboardStore = () => {
         setIsMounted(true);
         try {
             const saved = window.localStorage.getItem('advisor_widget_pos');
-            setAdvisorPos(saved ? JSON.parse(saved) : { x: window.innerWidth - 96, y: 96 });
+            const parsed = saved ? JSON.parse(saved) : { x: window.innerWidth, y: 96 };
+            setAdvisorPos(snapToNearestEdge(parsed.x, parsed.y));
         } catch {
-            setAdvisorPos({ x: window.innerWidth - 96, y: 96 });
+            setAdvisorPos(snapToNearestEdge(window.innerWidth, 96));
         }
     }, []);
 
@@ -211,8 +226,13 @@ const ComponentsDashboardStore = () => {
         if (!drag.moved) {
             toggleAdvisor();
         } else {
+            // Never leave it floating mid-screen -- snap to the nearer edge on
+            // release. The liquid-gooey Move effect trails this jump with its
+            // own spring, so the snap itself reads as a liquid settle, not a pop.
+            const snapped = snapToNearestEdge(advisorPos.x, advisorPos.y);
+            setAdvisorPos(snapped);
             try {
-                window.localStorage.setItem('advisor_widget_pos', JSON.stringify(advisorPos));
+                window.localStorage.setItem('advisor_widget_pos', JSON.stringify(snapped));
             } catch {
                 /* private browsing or storage disabled -- position just won't persist */
             }
@@ -378,6 +398,12 @@ const ComponentsDashboardStore = () => {
             tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: (val: number) => `${val}%` } },
         },
     };
+
+    // Popup opens toward whichever side of the orb still has room, instead of
+    // always dropping down-left -- relevant now that the orb can sit anywhere
+    // (snapped to the left or right edge, any height) rather than one fixed spot.
+    const advisorPopupOpensUp = isMounted && advisorPos.y > window.innerHeight / 2;
+    const advisorPopupOpensRight = isMounted && advisorPos.x < window.innerWidth / 2;
 
     return (
         <>
@@ -605,75 +631,79 @@ const ComponentsDashboardStore = () => {
             </div>
             {isMounted &&
                 createPortal(
-                    <div ref={advisorWidgetRef} className="fixed z-[60]" style={{ left: advisorPos.x, top: advisorPos.y }}>
-                        <div className="relative w-max">
-                            <button
-                                type="button"
-                                onPointerDown={onOrbPointerDown}
-                                onPointerMove={onOrbPointerMove}
-                                onPointerUp={onOrbPointerUp}
-                                disabled={advisorLoading}
-                                title={t('run_ai_advisor')}
-                                aria-expanded={advisorOpen}
-                                aria-label={t('run_ai_advisor')}
-                                className="touch-none cursor-grab rounded-full shadow-xl transition-transform hover:scale-110 active:cursor-grabbing disabled:cursor-wait"
-                            >
-                                <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
-                            </button>
-                            {advisorLoading && !advisorResult && !advisorError && (
-                                <p className="mt-2 w-16 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-white/30 via-white to-white/30 bg-clip-text text-center text-xs font-semibold text-transparent">
-                                    {t('thinking_ellipsis')}
-                                </p>
-                            )}
-                            <div
-                                className="t-panel-slide absolute right-0 top-full mt-3 max-h-[min(480px,70vh)] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-2xl bg-neutral-900 p-4 text-sm text-white shadow-2xl"
-                                data-open={advisorOpen ? 'true' : 'false'}
-                            >
-                                {advisorError && <div className="rounded border border-danger bg-danger-light px-3 py-2 text-xs text-danger">{advisorError}</div>}
-                                {advisorResult && (
-                                    <div className="space-y-3">
-                                        {!advisorResult.recommendations_verified && <p className="text-xs text-warning">{t('ai_advisor_unverified_notice')}</p>}
-                                        {advisorResult.anomalies.length > 0 && (
-                                            <div className="space-y-2">
-                                                {advisorResult.anomalies.map((a, i) => (
-                                                    <div key={i} className={`rounded px-3 py-2 text-xs ${a.severity === 'high' ? 'bg-danger-light text-danger' : 'bg-warning-light text-warning'}`}>
-                                                        {a.detail}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                        {advisorResult.recommendations.length === 0 ? (
-                                            <p className="text-xs text-white/60">{t('ai_advisor_no_recommendations')}</p>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {advisorResult.recommendations.map((r, i) => (
-                                                    <div key={i} className="rounded-md border border-white/10 p-3">
-                                                        <div className="mb-1 flex items-center gap-2">
-                                                            <span
-                                                                className={`badge ${
-                                                                    r.priority === 'high'
-                                                                        ? 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light'
-                                                                        : r.priority === 'medium'
-                                                                          ? 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light'
-                                                                          : 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light'
-                                                                }`}
-                                                            >
-                                                                {r.priority}
-                                                            </span>
-                                                            <h6 className="text-xs font-semibold">{r.title}</h6>
-                                                        </div>
-                                                        <p className="text-xs text-white/70">
-                                                            <StreamingText text={r.reasoning} />
-                                                        </p>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+                    <Liquid fill="#181818" blur={6} contrast={18} shadow="0 8px 24px rgba(0,0,0,.35)" className="pointer-events-none fixed inset-0 z-[60]">
+                        <Liquid.Item effect="move" move={{ springiness: 0.5, trail: 0.6 }}>
+                            <div ref={advisorWidgetRef} className="pointer-events-auto absolute w-max" style={{ transform: `translate(${advisorPos.x}px, ${advisorPos.y}px)` }}>
+                                <button
+                                    type="button"
+                                    onPointerDown={onOrbPointerDown}
+                                    onPointerMove={onOrbPointerMove}
+                                    onPointerUp={onOrbPointerUp}
+                                    disabled={advisorLoading}
+                                    title={t('run_ai_advisor')}
+                                    aria-expanded={advisorOpen}
+                                    aria-label={t('run_ai_advisor')}
+                                    className="touch-none cursor-grab rounded-full shadow-xl transition-transform hover:scale-110 active:cursor-grabbing disabled:cursor-wait"
+                                >
+                                    <ThinkingOrb state="composing" size={64} speed={advisorLoading ? 1.25 : 0.25} />
+                                </button>
+                                {advisorLoading && !advisorResult && !advisorError && (
+                                    <p className="mt-2 w-16 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-white/30 via-white to-white/30 bg-clip-text text-center text-xs font-semibold text-transparent">
+                                        {t('thinking_ellipsis')}
+                                    </p>
                                 )}
+                                <div
+                                    className={`t-panel-slide absolute max-h-[min(480px,70vh)] w-[min(380px,calc(100vw-32px))] overflow-y-auto rounded-2xl bg-neutral-900 p-4 text-sm text-white shadow-2xl ${
+                                        advisorPopupOpensUp ? 'bottom-full mb-3' : 'top-full mt-3'
+                                    } ${advisorPopupOpensRight ? 'left-0' : 'right-0'}`}
+                                    data-open={advisorOpen ? 'true' : 'false'}
+                                >
+                                    {advisorError && <div className="rounded border border-danger bg-danger-light px-3 py-2 text-xs text-danger">{advisorError}</div>}
+                                    {advisorResult && (
+                                        <div className="space-y-3">
+                                            {!advisorResult.recommendations_verified && <p className="text-xs text-warning">{t('ai_advisor_unverified_notice')}</p>}
+                                            {advisorResult.anomalies.length > 0 && (
+                                                <div className="space-y-2">
+                                                    {advisorResult.anomalies.map((a, i) => (
+                                                        <div key={i} className={`rounded px-3 py-2 text-xs ${a.severity === 'high' ? 'bg-danger-light text-danger' : 'bg-warning-light text-warning'}`}>
+                                                            {a.detail}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {advisorResult.recommendations.length === 0 ? (
+                                                <p className="text-xs text-white/60">{t('ai_advisor_no_recommendations')}</p>
+                                            ) : (
+                                                <div className="space-y-3">
+                                                    {advisorResult.recommendations.map((r, i) => (
+                                                        <div key={i} className="rounded-md border border-white/10 p-3">
+                                                            <div className="mb-1 flex items-center gap-2">
+                                                                <span
+                                                                    className={`badge ${
+                                                                        r.priority === 'high'
+                                                                            ? 'bg-danger-light text-danger dark:bg-danger dark:text-danger-light'
+                                                                            : r.priority === 'medium'
+                                                                              ? 'bg-warning-light text-warning dark:bg-warning dark:text-warning-light'
+                                                                              : 'bg-secondary-light text-secondary dark:bg-secondary dark:text-secondary-light'
+                                                                    }`}
+                                                                >
+                                                                    {r.priority}
+                                                                </span>
+                                                                <h6 className="text-xs font-semibold">{r.title}</h6>
+                                                            </div>
+                                                            <p className="text-xs text-white/70">
+                                                                <StreamingText text={r.reasoning} />
+                                                            </p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    </div>,
+                        </Liquid.Item>
+                    </Liquid>,
                     document.body,
                 )}
         </>
