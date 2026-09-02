@@ -397,7 +397,7 @@
     "company_wide_analytics": "Phân tích toàn chuỗi",
     "no_sales_data_period": "Không có dữ liệu bán hàng cho khoảng thời gian đã chọn.",
     "total_skus": "Tổng số mã hàng",
-    "total_customers": "Tổng số khách hàng",
+    "total_orders": "Tổng số đơn hàng",
     "revenue": "Doanh thu",
     "revenue_millions": "Doanh thu (triệu ₫)",
     "sales_analytics": "Phân tích doanh số",

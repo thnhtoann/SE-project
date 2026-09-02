@@ -2,11 +2,11 @@
 import IconBox from '@/components/icon/icon-box';
 import IconDollarSignCircle from '@/components/icon/icon-dollar-sign-circle';
 import IconUsers from '@/components/icon/icon-users';
-import IconUsersGroup from '@/components/icon/icon-users-group';
+import IconShoppingCart from '@/components/icon/icon-shopping-cart';
 import PeriodSelector from '@/components/dashboard/period-selector';
 import { IRootState } from '@/store';
 import { useApi } from '@/lib/hooks/use-api';
-import { CategoryRecord, CustomerRecord, OrderRecord, ProductApiRecord, ReportPeriod, RevenueTrendResponse, StaffRecord } from '@/types/admin';
+import { CategoryRecord, OrderRecord, ProductApiRecord, ReportPeriod, RevenueTrendResponse, StaffRecord } from '@/types/admin';
 import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import Link from 'next/link';
@@ -57,11 +57,7 @@ const ComponentsDashboardAnalytics = () => {
     const { data: orders } = useApi<OrderRecord[]>('/orders/');
     const { data: products } = useApi<ProductApiRecord[]>('/products/');
     const { data: categories } = useApi<CategoryRecord[]>('/categories/');
-    // /staff/ is store-scoped server-side for a Store Manager (chain-wide for Chain
-    // Manager/Admin); /customers/ has no store scoping at all yet (CustomerViewSet
-    // has no get_queryset override) so total_customers is always chain-wide.
     const { data: staff } = useApi<StaffRecord[]>('/staff/');
-    const { data: customers } = useApi<CustomerRecord[]>('/customers/');
 
     useEffect(() => {
         setIsMounted(true);
@@ -143,11 +139,11 @@ const ComponentsDashboardAnalytics = () => {
                             <div className="panel">
                                 <div className="flex items-center">
                                     <div className="grid h-11 w-11 shrink-0 place-content-center rounded-md bg-info-light text-info dark:bg-info dark:text-info-light">
-                                        <IconUsersGroup />
+                                        <IconShoppingCart />
                                     </div>
                                     <div className="ltr:ml-3 rtl:mr-3">
-                                        <h6 className="text-[13px] text-white-dark">{t('total_customers')}</h6>
-                                        <p className="text-xl font-semibold dark:text-white-light">{(customers ?? []).length.toLocaleString('en-US')}</p>
+                                        <h6 className="text-[13px] text-white-dark">{t('total_orders')}</h6>
+                                        <p className="text-xl font-semibold dark:text-white-light">{(orders ?? []).length.toLocaleString('en-US')}</p>
                                     </div>
                                 </div>
                             </div>
