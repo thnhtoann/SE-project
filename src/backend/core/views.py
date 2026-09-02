@@ -1145,6 +1145,11 @@ class RevenueTrendView(APIView):
                 }
                 for d in month_starts
             ]
+            prev_cursor = month_starts[0]
+            for _ in range(3):
+                prev_cursor = (prev_cursor - timedelta(days=1)).replace(day=1)
+            prev_start = prev_cursor
+            prev_end = month_starts[0] - timedelta(days=1)
         else:
             range_start = today - timedelta(days=6) if period == 'week' else today.replace(day=1)
             days = [range_start + timedelta(days=i) for i in range((today - range_start).days + 1)]
@@ -1178,11 +1183,23 @@ class RevenueTrendView(APIView):
                 }
                 for d in days
             ]
+            if period == 'week':
+                prev_start = range_start - timedelta(days=7)
+                prev_end = range_start - timedelta(days=1)
+            else:
+                last_day_prev_month = range_start - timedelta(days=1)
+                prev_start = last_day_prev_month.replace(day=1)
+                prev_end = prev_start + timedelta(days=min(today.day, last_day_prev_month.day) - 1)
+
+        previous_total = queryset.filter(
+            order_date__date__gte=prev_start, order_date__date__lte=prev_end
+        ).aggregate(total=Sum('total_amount'))['total'] or 0
 
         return Response({
             "period": period,
             "store": int(store_id) if store_id else None,
             "points": points,
+            "previous_total": str(previous_total),
         }, status=status.HTTP_200_OK)
 
 

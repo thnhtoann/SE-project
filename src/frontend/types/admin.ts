@@ -113,6 +113,7 @@ export interface RevenueTrendResponse {
     period: 'week' | 'month' | 'quarter';
     store: number | null;
     points: RevenueTrendPoint[];
+    previous_total: string;
 }
 
 // Response shape of GET /reports/sales-by-category/ (core/views.py SalesByCategoryView).
