@@ -116,7 +116,16 @@ class RoleViewSet(viewsets.ModelViewSet):
 class StoreViewSet(viewsets.ModelViewSet):
     queryset = Store.objects.all()
     serializer_class = StoreSerializer
-    permission_classes = [IsChainManager]
+
+    def get_permissions(self):
+        # Was Chain-Manager-only for every method, including GET -- but the
+        # Inventory/Staff/dashboard pages all need to resolve store names for
+        # any role, so a Store Manager (or Cashier) hit a 403 just listing
+        # stores and every screen that depends on it silently went empty.
+        # Create/edit/delete stays Chain Manager/Admin-only.
+        if self.request.method in SAFE_METHODS:
+            return [IsCashier()]
+        return [IsChainManager()]
 
 
 class StaffViewSet(viewsets.ModelViewSet):
@@ -338,7 +347,14 @@ class LowStockAlertViewSet(viewsets.ModelViewSet):
                         alert.save(update_fields=['current_stock'])
 
     def get_queryset(self):
+        user = self.request.user
+        is_chain_scope = bool(user.role and user.role.role_name in ('Chain Manager', 'Admin'))
         store_id = self.request.query_params.get('store') or self.request.query_params.get('store_id')
+        # Same store-scoping convention as StoreInventoryViewSet/StaffViewSet:
+        # Store Manager/Cashier only ever sweep and see their own store's
+        # alerts, regardless of ?store=.
+        if not is_chain_scope:
+            store_id = user.store_id
         self._sweep_low_stock_alerts(store_id=store_id)
 
         queryset = super().get_queryset()
