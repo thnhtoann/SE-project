@@ -84,12 +84,16 @@ class StaffSerializer(serializers.ModelSerializer):
         # Sum of this month's completed Orders attributed to this staff
         # member (Order.staff), per FR: staff "monthly sales" performance
         # figure. Not a stored field — always computed live from real Order
-        # data so it can't drift out of sync.
-        now = timezone.now()
-        total = Order.objects.filter(
-            staff=obj, order_date__year=now.year, order_date__month=now.month
-        ).aggregate(total=Sum('total_amount'))['total']
-        return float(total or 0)
+        # data so it can't drift out of sync. Cached on the instance because
+        # get_performance_status needs the same figure -- without this, DRF
+        # ends up running this query twice per row.
+        if not hasattr(obj, '_monthly_sales_cache'):
+            now = timezone.now()
+            total = Order.objects.filter(
+                staff=obj, order_date__year=now.year, order_date__month=now.month
+            ).aggregate(total=Sum('total_amount'))['total']
+            obj._monthly_sales_cache = float(total or 0)
+        return obj._monthly_sales_cache
 
     def get_performance_status(self, obj):
         sales = self.get_monthly_sales(obj)
