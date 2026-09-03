@@ -5,7 +5,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from core.models import Batch, Category, Order, Product, Role, Shift, Staff, Store, StoreInventory
+from core.models import Batch, Category, Notification, Order, Product, Role, Shift, Staff, Store, StoreInventory
 
 
 class PosCheckoutApiTests(APITestCase):
@@ -121,3 +121,28 @@ class PosCheckoutApiTests(APITestCase):
         res = self._checkout(shift=other_shift.shift_id)
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Order.objects.count(), 0)
+
+    def test_cash_checkout_notifies_cashier_own_store_manager_and_all_chain_managers_only(self):
+        store_manager = Staff.objects.create_user(
+            username='checkout_store_mgr', password='password123', full_name='Checkout Store Mgr',
+            role=Role.objects.get_or_create(role_name='Store Manager')[0], store=self.store,
+        )
+        chain_manager = Staff.objects.create_user(
+            username='checkout_chain_mgr', password='password123', full_name='Checkout Chain Mgr',
+            role=Role.objects.get_or_create(role_name='Chain Manager')[0],
+        )
+        other_store_manager = Staff.objects.create_user(
+            username='checkout_other_store_mgr', password='password123', full_name='Other Store Mgr',
+            role=Role.objects.get_or_create(role_name='Store Manager')[0], store=self.other_store,
+        )
+
+        res = self._checkout()
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+
+        notified_ids = set(Notification.objects.values_list('recipient_id', flat=True))
+        self.assertEqual(notified_ids, {self.cashier.pk, store_manager.pk, chain_manager.pk})
+        self.assertNotIn(other_store_manager.pk, notified_ids)
+
+        note = Notification.objects.get(recipient=chain_manager)
+        self.assertEqual(note.notification_type, Notification.TYPE_CASH_PAYMENT_SUCCESS)
+        self.assertEqual(note.order.order_id, res.data['order_id'])

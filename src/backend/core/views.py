@@ -1611,7 +1611,8 @@ class MarketplaceChannelSettingViewSet(viewsets.ModelViewSet):
 class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     """ Mỗi staff chỉ thấy thông báo của chính mình (recipient=request.user)
     -- ai được nhận thông báo nào quyết định lúc tạo (xem
-    pos/views.py::_notify_qr_payment_success), không phải ở đây. """
+    core/checkout.py::_notify_payment_success, gọi từ create_pos_order cho
+    cả Cash lẫn Bank QR), không phải ở đây. """
     serializer_class = NotificationSerializer
     permission_classes = [IsCashier]
 

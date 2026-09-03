@@ -3,6 +3,7 @@ Atomic POS checkout (Constitution Principle III): payment confirmation,
 inventory deduction, and order/order-detail creation must happen as one
 all-or-nothing unit, mirroring omnichannel/services.py::save_normalized_order.
 """
+import logging
 from decimal import Decimal
 
 from django.db import transaction
@@ -10,7 +11,9 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from .inventory import deduct_stock
-from .models import Order, OrderDetail, Shift
+from .models import Notification, Order, OrderDetail, Shift, Staff
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_line_subtotal(unit_price, quantity, discount_type=None, discount_value=None):
@@ -28,6 +31,30 @@ def calculate_line_subtotal(unit_price, quantity, discount_type=None, discount_v
     else:
         line_discount = Decimal('0')
     return (line_total - min(line_discount, line_total)).quantize(Decimal('0.01'))
+
+
+def _notify_payment_success(order, staff):
+    """ Người nhận thông báo (cả Cash lẫn Bank QR đi qua đây, vì cả hai đều
+    gọi create_pos_order): cashier đã xử lý đơn, Store Manager của đúng chi
+    nhánh đó, và mọi Chain Manager/Admin toàn chuỗi -- không phải
+    Cashier/Store Manager ở chi nhánh khác. Dict theo staff_id khử trùng lặp
+    (vd. chính người bán lại là Store Manager của chi nhánh). """
+    recipients = {}
+    if staff is not None:
+        recipients[staff.staff_id] = staff
+    for s in Staff.objects.filter(store=order.store, role__role_name='Store Manager'):
+        recipients[s.staff_id] = s
+    for s in Staff.objects.filter(role__role_name__in=['Chain Manager', 'Admin']):
+        recipients[s.staff_id] = s
+
+    is_qr = order.payment_method == 'Bank QR'
+    method_label = 'QR' if is_qr else 'tiền mặt'
+    notification_type = Notification.TYPE_QR_PAYMENT_SUCCESS if is_qr else Notification.TYPE_CASH_PAYMENT_SUCCESS
+    message = f"Thanh toán {method_label} đơn #{order.order_id} tại {order.store.store_name} thành công ({order.total_amount:,.0f}đ)."
+    Notification.objects.bulk_create([
+        Notification(recipient=s, notification_type=notification_type, message=message, order=order)
+        for s in recipients.values()
+    ])
 
 
 def create_pos_order(*, store, shift, payment_method, items, staff,
@@ -80,5 +107,12 @@ def create_pos_order(*, store, shift, payment_method, items, staff,
 
         order.total_amount = (subtotal * (Decimal('1') - Decimal(discount_percent) / Decimal('100'))).quantize(Decimal('0.01'))
         order.save(update_fields=['total_amount'])
+
+    # The order is already committed at this point -- a notification bug
+    # must never turn into a 500 on an otherwise-successful checkout.
+    try:
+        _notify_payment_success(order, staff)
+    except Exception:
+        logger.exception("Failed to send payment-success notifications for order %s", order.order_id)
 
     return order

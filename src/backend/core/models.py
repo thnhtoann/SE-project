@@ -475,6 +475,7 @@ class MarketplaceChannelSetting(models.Model):
 # báo khác sau này không cần đổi schema.
 class Notification(models.Model):
     TYPE_QR_PAYMENT_SUCCESS = 'qr_payment_success'
+    TYPE_CASH_PAYMENT_SUCCESS = 'cash_payment_success'
 
     recipient = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name='notifications')
     notification_type = models.CharField(max_length=50, default=TYPE_QR_PAYMENT_SUCCESS)

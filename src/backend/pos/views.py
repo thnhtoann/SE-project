@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from core.checkout import calculate_line_subtotal, create_pos_order
 from core.inventory import InsufficientStockError
-from core.models import Notification, Product, Staff
+from core.models import Product
 from core.permissions import IsCashier, IsChainManager, IsStoreManager
 from core.serializers import OrderDetailSerializer, OrderSerializer
 
@@ -136,26 +136,6 @@ class QrPaymentStatusView(APIView):
         return Response({'order_code': intent.order_code, 'status': intent.status})
 
 
-def _notify_qr_payment_success(intent, order):
-    """ Người nhận thông báo: cashier đã mở phiên QR đó, Store Manager của
-    đúng chi nhánh đó, và mọi Chain Manager/Admin (toàn chuỗi) -- không
-    phải Cashier/Store Manager ở chi nhánh khác. Dùng dict theo staff_id để
-    khử trùng lặp (vd. chính người bán lại là Store Manager của chi nhánh). """
-    recipients = {}
-    if intent.staff_id:
-        recipients[intent.staff_id] = intent.staff
-    for staff in Staff.objects.filter(store=intent.store, role__role_name='Store Manager'):
-        recipients[staff.staff_id] = staff
-    for staff in Staff.objects.filter(role__role_name__in=['Chain Manager', 'Admin']):
-        recipients[staff.staff_id] = staff
-
-    message = f"Thanh toán QR đơn #{order.order_id} tại {intent.store.store_name} thành công ({order.total_amount:,.0f}đ)."
-    Notification.objects.bulk_create([
-        Notification(recipient=staff, notification_type=Notification.TYPE_QR_PAYMENT_SUCCESS, message=message, order=order)
-        for staff in recipients.values()
-    ])
-
-
 class PayOSWebhookView(APIView):
     """ PayOS gọi endpoint này khi trạng thái một link thanh toán thay đổi
     (và một lần với payload mẫu khi bạn đăng ký URL này qua "Confirm
@@ -211,7 +191,7 @@ class PayOSWebhookView(APIView):
                 intent.status = QrPaymentIntent.STATUS_PAID
                 intent.paid_at = timezone.now()
                 intent.save(update_fields=['order', 'status', 'paid_at'])
-            _notify_qr_payment_success(intent, order)
+                # create_pos_order already sent the payment-success notification.
         except InsufficientStockError as e:
             # Money has already moved on PayOS's side at this point -- this is
             # a real fulfillment problem, not something to silently retry.
