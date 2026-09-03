@@ -24,9 +24,12 @@ import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
+from xml.sax.saxutils import escape
 
+import requests
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Sum
 from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework import status
@@ -353,6 +356,39 @@ class LazadaSyncOrdersView(APIView):
         })
 
 
+class LazadaCategoryTreeView(APIView):
+    """ Lấy category tree từ Lazada (/category/tree/get) -- dùng để chọn
+    một category_id hợp lệ trước khi tạo sản phẩm qua /product/create,
+    vốn bắt buộc PrimaryCategory phải là leaf category id của Lazada. """
+    permission_classes = [IsChainManager]
+
+    def get(self, request):
+        credential = LazadaCredential.objects.select_related('store').first()
+        if not credential:
+            return Response(
+                {"error": "Chưa kết nối tài khoản Lazada nào."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            credential = _refresh_token_if_needed(credential)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        req = LazopRequest('/category/tree/get', http_method='GET')
+        try:
+            response = _api_client().execute(req, credential.access_token)
+        except Exception:
+            logger.exception("Lazada /category/tree/get request failed")
+            return Response({"error": "Không gọi được API Lazada /category/tree/get."}, status=status.HTTP_502_BAD_GATEWAY)
+
+        body = response.body or {}
+        if response.code and response.code != '0':
+            return Response({"error": f"{response.code}: {response.message}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response(body.get('data') or body)
+
+
 class LazadaProductsView(APIView):
     """ Lấy danh sách sản phẩm thật từ tài khoản Lazada đã kết nối. Trả về
     dạng phẳng theo từng SKU (ShopSku khớp với shop_sku dùng trong đồng bộ
@@ -494,3 +530,146 @@ class LazadaImportProductsView(APIView):
             "already_existed": len(existed),
             "errors": errors,
         })
+
+
+def _upload_image_to_lazada(access_token: str, image_url: str) -> str:
+    """Downloads a product's image_url and uploads it to Lazada via
+    /image/upload, returning the Lazada-hosted image URL that
+    Skus.Images must reference (Lazada doesn't accept arbitrary external
+    image URLs in /product/create). Raises on any failure -- caller decides
+    whether a missing image should block product creation."""
+    image_response = requests.get(image_url, timeout=10)
+    image_response.raise_for_status()
+
+    req = LazopRequest('/image/upload')
+    req.add_file_param('image', image_response.content)
+    response = _api_client().execute(req, access_token)
+    body = response.body or {}
+    if response.code and response.code != '0':
+        raise ValueError(f"{response.code}: {response.message}")
+    return body['data']['image']['url']
+
+
+def _build_product_payload_xml(category_id, product, quantity, image_url=None, brand='No Brand', description=None):
+    # /product/create's `payload` param is Lazada's documented XML product
+    # schema (not JSON), regardless of the JSON envelope the rest of the
+    # Open Platform API uses. Field set kept intentionally minimal --
+    # Lazada categories can require extra category-specific Attributes
+    # (via /category/attributes/query), which isn't handled here.
+    description = description or product.product_name
+    images_xml = f"<Images><Image>{escape(image_url)}</Image></Images>" if image_url else ""
+    return (
+        "<Request><Product>"
+        f"<PrimaryCategory>{escape(str(category_id))}</PrimaryCategory>"
+        "<Attributes>"
+        f"<name>{escape(product.product_name)}</name>"
+        f"<short_description><![CDATA[{description}]]></short_description>"
+        f"<description><![CDATA[{description}]]></description>"
+        f"<brand>{escape(brand)}</brand>"
+        "</Attributes>"
+        "<Skus><Sku>"
+        f"<SellerSku>{escape(product.barcode)}</SellerSku>"
+        f"<quantity>{quantity}</quantity>"
+        f"<price>{product.base_price}</price>"
+        "<package_height>10</package_height>"
+        "<package_length>10</package_length>"
+        "<package_width>10</package_width>"
+        "<package_weight>0.1</package_weight>"
+        f"{images_xml}"
+        "</Sku></Skus>"
+        "</Product></Request>"
+    )
+
+
+class LazadaCreateProductView(APIView):
+    """ Đẩy 1 Product có sẵn trong Mart+ lên Lazada qua /product/create.
+
+    Lazada không push webhook khi tạo sản phẩm -- /product/create là API
+    đồng bộ, trả về item_id/sku_id ngay trong response (hoặc lỗi). Ngay sau
+    khi tạo, view này gọi /product/item/get để xác nhận sản phẩm đã truy
+    vấn được từ phía Lazada (thay cho việc chờ webhook -- khớp với thiết kế
+    "polling" đã ghi ở đầu module này). """
+    permission_classes = [IsChainManager]
+
+    def post(self, request):
+        credential = LazadaCredential.objects.select_related('store').first()
+        if not credential:
+            return Response(
+                {"error": "Chưa kết nối tài khoản Lazada nào."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            credential = _refresh_token_if_needed(credential)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        product_id = request.data.get('product_id')
+        category_id = request.data.get('category_id')
+        if not product_id or not category_id:
+            return Response(
+                {"error": "Thiếu product_id hoặc category_id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            product = Product.objects.get(pk=product_id)
+        except Product.DoesNotExist:
+            return Response(
+                {"error": f"Không tìm thấy sản phẩm product_id={product_id}."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        quantity = request.data.get('quantity')
+        if quantity is None:
+            quantity = StoreInventory.objects.filter(
+                batch__product=product, store=credential.store,
+            ).aggregate(total=Sum('quantity'))['total'] or 100
+
+        image_url = None
+        if product.image_url:
+            try:
+                image_url = _upload_image_to_lazada(credential.access_token, product.image_url)
+            except Exception:
+                logger.exception(
+                    "Lazada /image/upload failed for product %s; creating without image", product_id,
+                )
+
+        payload = _build_product_payload_xml(
+            category_id, product, quantity, image_url=image_url,
+            brand=request.data.get('brand', 'No Brand'),
+            description=request.data.get('description'),
+        )
+
+        req = LazopRequest('/product/create')
+        req.add_api_param('payload', payload)
+
+        try:
+            response = _api_client().execute(req, credential.access_token)
+        except Exception:
+            logger.exception("Lazada /product/create request failed")
+            return Response({"error": "Không gọi được API Lazada /product/create."}, status=status.HTTP_502_BAD_GATEWAY)
+
+        body = response.body or {}
+        if response.code and response.code != '0':
+            return Response({"error": f"{response.code}: {response.message}", "raw": body}, status=status.HTTP_502_BAD_GATEWAY)
+
+        data = body.get('data') or {}
+        item_id = data.get('item_id')
+
+        verify = None
+        if item_id:
+            verify_req = LazopRequest('/product/item/get', http_method='GET')
+            verify_req.add_api_param('item_id', str(item_id))
+            try:
+                verify_response = _api_client().execute(verify_req, credential.access_token)
+                verify = verify_response.body
+            except Exception:
+                logger.exception("Lazada /product/item/get verification failed for item_id %s", item_id)
+                verify = {"error": "Không xác minh lại được (nhưng /product/create đã trả về item_id)."}
+
+        return Response({
+            "item_id": item_id,
+            "raw_create_response": body,
+            "verify": verify,
+        }, status=status.HTTP_201_CREATED)
