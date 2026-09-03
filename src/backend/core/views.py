@@ -61,6 +61,42 @@ def _is_otp_bypass(submitted_otp):
     return is_bypass
 
 
+def _send_otp_email(recipient_email, otp, purpose):
+    """Sends the OTP code by email (English, HTML with a plain-text
+    fallback). purpose is used in the subject/heading, e.g. "Registration",
+    "Login", "Password Reset"."""
+    subject = f'Your Smart Procurement {purpose} verification code'
+    text_message = (
+        f'Your {purpose} verification code is: {otp}\n'
+        'This code expires in 5 minutes. If you did not request this, you can ignore this email.'
+    )
+    html_message = f"""\
+<div style="background-color:#f4f5f7;padding:32px 16px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+    <div style="background:#2563eb;padding:24px 32px;">
+      <h1 style="margin:0;color:#ffffff;font-size:20px;">Smart Procurement</h1>
+    </div>
+    <div style="padding:32px;">
+      <p style="margin:0 0 16px;color:#1f2937;font-size:15px;">{purpose} verification code</p>
+      <div style="margin:0 0 16px;padding:16px;background:#f4f5f7;border-radius:8px;text-align:center;">
+        <span style="font-size:32px;font-weight:700;letter-spacing:8px;color:#111827;">{otp}</span>
+      </div>
+      <p style="margin:0 0 8px;color:#4b5563;font-size:14px;">This code expires in <strong>5 minutes</strong>.</p>
+      <p style="margin:0;color:#9ca3af;font-size:13px;">If you did not request this code, you can safely ignore this email.</p>
+    </div>
+  </div>
+</div>
+"""
+    send_mail(
+        subject=subject,
+        message=text_message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[recipient_email],
+        html_message=html_message,
+        fail_silently=False,
+    )
+
+
 class HealthCheckView(APIView):
     def get(self, request):
         return Response({'status': 'ok'})
@@ -782,13 +818,7 @@ class RegisterRequestOTPView(APIView):
         }, timeout=300)
         cache.delete(f"register_otp_attempts_{email}")
 
-        send_mail(
-            subject='[Smart Procurement] Mã OTP Xác Thực Đăng Ký',
-            message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
-        )
+        _send_otp_email(email, otp, 'Registration')
 
         return Response({
             "message": "OTP đã được gửi tới email của bạn.",
@@ -924,13 +954,7 @@ class LoginRequestOTPView(APIView):
             cache.delete(f"otp_attempts_{user.username}")
 
             # Gửi OTP qua Email
-            send_mail(
-                subject='[Smart Procurement] Mã OTP Đăng Nhập',
-                message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
-            )
+            _send_otp_email(user.email, otp, 'Login')
 
             return Response({
                 "message": "OTP đã được gửi tới email của bạn.",
@@ -1199,13 +1223,7 @@ class PasswordResetRequestOTPView(APIView):
         otp_record, _ = OTPRecord.objects.get_or_create(user=user)
         otp = otp_record.generate_otp()
         cache.delete(f"password_reset_attempts_{user.username}")
-        send_mail(
-            subject='[Smart Procurement] Mã OTP Đặt Lại Mật Khẩu',
-            message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
-        )
+        _send_otp_email(user.email, otp, 'Password Reset')
 
         return Response({
             "message": "Một mã OTP đã được gửi tới email đã đăng ký.",

@@ -36,15 +36,23 @@ class ResendEmailBackend(BaseEmailBackend):
         sent_count = 0
         for message in email_messages:
             try:
+                payload = {
+                    'from': message.from_email,
+                    'to': list(message.to),
+                    'subject': message.subject,
+                    'text': message.body,
+                }
+                html_body = next(
+                    (content for content, mimetype in getattr(message, 'alternatives', [])
+                     if mimetype == 'text/html'),
+                    None,
+                )
+                if html_body:
+                    payload['html'] = html_body
                 response = requests.post(
                     RESEND_API_URL,
                     headers={'Authorization': f'Bearer {settings.RESEND_API_KEY}'},
-                    json={
-                        'from': message.from_email,
-                        'to': list(message.to),
-                        'subject': message.subject,
-                        'text': message.body,
-                    },
+                    json=payload,
                     timeout=10,
                 )
                 if response.status_code >= 400:
