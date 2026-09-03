@@ -103,7 +103,13 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
                         store: storeId,
                         shift: shiftId,
                         discount_percent: discountPercent,
-                        items: cart.map((li) => ({ product: li.productId, quantity: li.quantity, unit_price: li.unitPrice.toFixed(2) })),
+                        items: cart.map((li) => ({
+                            product: li.productId,
+                            quantity: li.quantity,
+                            unit_price: li.unitPrice.toFixed(2),
+                            discount_type: li.discountType,
+                            discount_value: li.discountValue.toFixed(2),
+                        })),
                     },
                 });
                 if (cancelled) return;

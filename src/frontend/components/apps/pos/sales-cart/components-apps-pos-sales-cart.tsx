@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '@/store';
-import { addLineItem, fetchActiveShift, removeLineItem, setDiscountPercent, setLineItemQuantity, toggleAutoPrint } from '@/store/posSlice';
+import { addLineItem, fetchActiveShift, removeLineItem, setDiscountPercent, setLineItemDiscount, setLineItemQuantity, toggleAutoPrint } from '@/store/posSlice';
 import PosProductSearch from './pos-product-search';
 import PosCartLineItemRow from './pos-cart-line-item-row';
 import PosCheckoutModal, { PosCheckoutModalHandle } from './pos-checkout-modal';
@@ -33,7 +33,13 @@ const ComponentsAppsPosSalesCart = () => {
         if (storeId) dispatch(fetchActiveShift(storeId));
     }, [dispatch, storeId]);
 
+    // rawSubtotal: before any per-item discount (what "Subtotal" should mean).
+    // subtotal: after per-item discounts, before the whole-cart % discount --
+    // this is what discountPercent applies on top of, matching
+    // core/checkout.py::create_pos_order's math exactly.
+    const rawSubtotal = useMemo(() => Number(cart.reduce((sum, li) => sum + li.unitPrice * li.quantity, 0).toFixed(2)), [cart]);
     const subtotal = useMemo(() => Number(cart.reduce((sum, li) => sum + li.subTotal, 0).toFixed(2)), [cart]);
+    const itemDiscountsTotal = Number((rawSubtotal - subtotal).toFixed(2));
     const discountAmount = Number((subtotal * (discountPercent / 100)).toFixed(2));
     const total = Number((subtotal - discountAmount).toFixed(2));
 
@@ -143,6 +149,7 @@ const ComponentsAppsPosSalesCart = () => {
                                 <th>Product</th>
                                 <th className="w-1">Qty</th>
                                 <th className="w-1">Price</th>
+                                <th className="w-1">{t('discount')}</th>
                                 <th className="w-1">Subtotal</th>
                                 <th className="w-1"></th>
                             </tr>
@@ -150,7 +157,7 @@ const ComponentsAppsPosSalesCart = () => {
                         <tbody>
                             {cart.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="!text-center font-semibold text-white-dark">
+                                    <td colSpan={6} className="!text-center font-semibold text-white-dark">
                                         {catalogLoading ? t('loading') : 'No items yet — scan a barcode or search above'}
                                     </td>
                                 </tr>
@@ -160,6 +167,7 @@ const ComponentsAppsPosSalesCart = () => {
                                     key={item.productId}
                                     item={item}
                                     onQuantityChange={(productId, quantity) => dispatch(setLineItemQuantity({ productId, quantity }))}
+                                    onDiscountChange={(productId, discountType, discountValue) => dispatch(setLineItemDiscount({ productId, discountType, discountValue }))}
                                     onRemove={(productId) => dispatch(removeLineItem({ productId }))}
                                 />
                             ))}
@@ -172,8 +180,14 @@ const ComponentsAppsPosSalesCart = () => {
                 <div className="panel">
                     <div className="flex items-center justify-between py-1">
                         <span>{t('subtotal')} ({cart.length} items)</span>
-                        <span>{currency(subtotal)}</span>
+                        <span>{currency(rawSubtotal)}</span>
                     </div>
+                    {itemDiscountsTotal > 0 && (
+                        <div className="flex items-center justify-between py-1">
+                            <span>{t('item_discount')}</span>
+                            <span>-{currency(itemDiscountsTotal)}</span>
+                        </div>
+                    )}
                     <div className="flex items-center justify-between py-1">
                         <span>
                             {t('discount')} (F6){discountPercent > 0 ? ` — ${discountPercent}%` : ''}

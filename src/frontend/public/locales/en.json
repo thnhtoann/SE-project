@@ -140,6 +140,8 @@
     "out_of_stock": "Out of stock",
     "subtotal": "Subtotal",
     "discount": "Discount",
+    "item_discount": "Item Discount",
+    "clear_discount": "Clear discount",
     "customer_owes": "Customer owes",
     "auto_print_invoice": "Auto print invoice",
     "checkout": "Checkout",

@@ -9,7 +9,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.checkout import create_pos_order
+from core.checkout import calculate_line_subtotal, create_pos_order
 from core.inventory import InsufficientStockError
 from core.models import Notification, Product, Staff
 from core.permissions import IsCashier, IsChainManager, IsStoreManager
@@ -51,7 +51,10 @@ class CreateQrPaymentView(APIView):
 
         items = data['items']
         discount_percent = data['discount_percent']
-        subtotal = sum(item['unit_price'] * item['quantity'] for item in items)
+        subtotal = sum(
+            calculate_line_subtotal(item['unit_price'], item['quantity'], item.get('discount_type'), item.get('discount_value'))
+            for item in items
+        )
         amount = int((subtotal * (Decimal('1') - discount_percent / Decimal('100'))).to_integral_value())
         if amount <= 0:
             return Response({"detail": "Order amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
@@ -70,7 +73,13 @@ class CreateQrPaymentView(APIView):
             return Response({"detail": str(e), "error_code": "payos_unavailable"}, status=status.HTTP_502_BAD_GATEWAY)
 
         cart_snapshot = [
-            {"product": item['product'].product_id, "quantity": item['quantity'], "unit_price": str(item['unit_price'])}
+            {
+                "product": item['product'].product_id,
+                "quantity": item['quantity'],
+                "unit_price": str(item['unit_price']),
+                "discount_type": item.get('discount_type'),
+                "discount_value": str(item.get('discount_value') or Decimal('0')),
+            }
             for item in items
         ]
 
@@ -179,6 +188,10 @@ class PayOSWebhookView(APIView):
                 'product': Product.objects.get(pk=entry['product']),
                 'quantity': entry['quantity'],
                 'unit_price': Decimal(entry['unit_price']),
+                # .get() with defaults: intents created before per-item
+                # discounts existed have snapshots without these keys.
+                'discount_type': entry.get('discount_type'),
+                'discount_value': Decimal(entry.get('discount_value') or '0'),
             }
             for entry in intent.cart_snapshot
         ]

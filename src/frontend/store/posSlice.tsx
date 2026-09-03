@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { apiFetch, ApiError } from '@/lib/api-client';
-import { CartLineItem, PaymentMethod } from '@/components/apps/pos/pos-data';
+import { CartLineItem, computeLineSubtotal, LineDiscountType, PaymentMethod } from '@/components/apps/pos/pos-data';
 import { OrderDetailApiRecord, OrderRecord, ProductApiRecord, ShiftRecord } from '@/types/admin';
 
 export type PosAsyncStatus = 'idle' | 'loading' | 'error';
@@ -101,6 +101,8 @@ export const checkoutThunk = createAsyncThunk(
                         product: li.productId,
                         quantity: li.quantity,
                         unit_price: li.unitPrice.toFixed(2),
+                        discount_type: li.discountType,
+                        discount_value: li.discountValue.toFixed(2),
                     })),
                 },
             });
@@ -119,7 +121,7 @@ const posSlice = createSlice({
             const existing = state.cart.find((li) => li.productId === product.product_id);
             if (existing) {
                 existing.quantity += 1;
-                existing.subTotal = Number((existing.quantity * existing.unitPrice).toFixed(2));
+                existing.subTotal = computeLineSubtotal(existing.unitPrice, existing.quantity, existing.discountType, existing.discountValue);
             } else {
                 state.cart.push({
                     productId: product.product_id,
@@ -127,6 +129,8 @@ const posSlice = createSlice({
                     name: product.product_name,
                     unitPrice,
                     quantity: 1,
+                    discountType: null,
+                    discountValue: 0,
                     subTotal: unitPrice,
                 });
             }
@@ -139,8 +143,15 @@ const posSlice = createSlice({
             const line = state.cart.find((li) => li.productId === payload.productId);
             if (line) {
                 line.quantity = payload.quantity;
-                line.subTotal = Number((line.quantity * line.unitPrice).toFixed(2));
+                line.subTotal = computeLineSubtotal(line.unitPrice, line.quantity, line.discountType, line.discountValue);
             }
+        },
+        setLineItemDiscount(state, { payload }: PayloadAction<{ productId: number; discountType: LineDiscountType; discountValue: number }>) {
+            const line = state.cart.find((li) => li.productId === payload.productId);
+            if (!line) return;
+            line.discountType = payload.discountType;
+            line.discountValue = Math.max(0, payload.discountValue);
+            line.subTotal = computeLineSubtotal(line.unitPrice, line.quantity, line.discountType, line.discountValue);
         },
         removeLineItem(state, { payload }: PayloadAction<{ productId: number }>) {
             state.cart = state.cart.filter((li) => li.productId !== payload.productId);
@@ -214,6 +225,7 @@ const posSlice = createSlice({
     },
 });
 
-export const { addLineItem, setLineItemQuantity, removeLineItem, setDiscountPercent, toggleAutoPrint, clearCart, resetCheckoutStatus } = posSlice.actions;
+export const { addLineItem, setLineItemQuantity, setLineItemDiscount, removeLineItem, setDiscountPercent, toggleAutoPrint, clearCart, resetCheckoutStatus } =
+    posSlice.actions;
 
 export default posSlice.reducer;

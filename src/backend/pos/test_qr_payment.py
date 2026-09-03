@@ -67,7 +67,10 @@ class CreateQrPaymentTests(QrPaymentTestBase):
 
         intent = QrPaymentIntent.objects.get(order_code=res.data['order_code'])
         self.assertEqual(intent.amount, 30000)
-        self.assertEqual(intent.cart_snapshot, [{'product': self.product.product_id, 'quantity': 2, 'unit_price': '15000.00'}])
+        self.assertEqual(intent.cart_snapshot, [{
+            'product': self.product.product_id, 'quantity': 2, 'unit_price': '15000.00',
+            'discount_type': None, 'discount_value': '0',
+        }])
 
         # No order created / stock touched yet -- only the webhook does that.
         self.assertEqual(Order.objects.count(), 0)
@@ -76,6 +79,21 @@ class CreateQrPaymentTests(QrPaymentTestBase):
 
         call_kwargs = mock_create_link.call_args.kwargs
         self.assertEqual(call_kwargs['amount'], 30000)
+
+    @patch('pos.views.payos_client.create_payment_link')
+    def test_amount_reflects_per_item_discount(self, mock_create_link):
+        mock_create_link.return_value = {'checkoutUrl': 'https://pay.payos.vn/web/abc123', 'qrCode': '', 'paymentLinkId': ''}
+
+        payload = self._create_payload(items=[{
+            'product': self.product.product_id, 'quantity': 2, 'unit_price': '15000.00',
+            'discount_type': 'amount', 'discount_value': '5000',
+        }])
+        res = self.client.post(reverse('pos-qr-payment-create'), payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        # (15000*2) - 5000 = 25000
+        self.assertEqual(res.data['amount'], 25000)
+        self.assertEqual(mock_create_link.call_args.kwargs['amount'], 25000)
 
     @patch('pos.views.payos_client.create_payment_link')
     def test_payos_error_returns_502(self, mock_create_link):
@@ -186,6 +204,24 @@ class PayOSWebhookTests(QrPaymentTestBase):
 
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 8)
+
+    @patch('pos.views.payos_client.verify_webhook_signature', return_value=True)
+    def test_per_item_discount_from_snapshot_applied_to_order(self, mock_verify):
+        self.intent.cart_snapshot = [{
+            'product': self.product.product_id, 'quantity': 2, 'unit_price': '15000.00',
+            'discount_type': 'percent', 'discount_value': '10',
+        }]
+        self.intent.save(update_fields=['cart_snapshot'])
+
+        res = self.client.post(reverse('pos-payos-webhook'), self._payload(), format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.intent.refresh_from_db()
+        # (15000*2) - 10% = 27000
+        self.assertEqual(Decimal(self.intent.order.total_amount), Decimal('27000.00'))
+        detail = self.intent.order.orderdetail_set.get()
+        self.assertEqual(detail.discount_type, 'percent')
+        self.assertEqual(Decimal(detail.discount_value), Decimal('10'))
 
     @patch('pos.views.payos_client.verify_webhook_signature', return_value=True)
     def test_notifies_cashier_own_store_manager_and_all_chain_managers_only(self, mock_verify):

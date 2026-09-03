@@ -62,6 +62,43 @@ class PosCheckoutApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
         self.assertEqual(Decimal(res.data['total_amount']), Decimal('27000.00'))
 
+    def test_per_item_percent_discount(self):
+        res = self._checkout(items=[{
+            'product': self.product.product_id, 'quantity': 2, 'unit_price': '15000.00',
+            'discount_type': 'percent', 'discount_value': '10',
+        }])
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        # (15000*2) - 10% = 27000
+        self.assertEqual(Decimal(res.data['details'][0]['sub_total']), Decimal('27000.00'))
+        self.assertEqual(Decimal(res.data['total_amount']), Decimal('27000.00'))
+
+    def test_per_item_amount_discount(self):
+        res = self._checkout(items=[{
+            'product': self.product.product_id, 'quantity': 2, 'unit_price': '15000.00',
+            'discount_type': 'amount', 'discount_value': '5000',
+        }])
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        # (15000*2) - 5000 = 25000
+        self.assertEqual(Decimal(res.data['details'][0]['sub_total']), Decimal('25000.00'))
+        self.assertEqual(Decimal(res.data['total_amount']), Decimal('25000.00'))
+
+    def test_per_item_amount_discount_capped_at_line_total(self):
+        res = self._checkout(items=[{
+            'product': self.product.product_id, 'quantity': 1, 'unit_price': '15000.00',
+            'discount_type': 'amount', 'discount_value': '999999',
+        }])
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        self.assertEqual(Decimal(res.data['details'][0]['sub_total']), Decimal('0.00'))
+
+    def test_per_item_discount_stacks_with_cart_level_discount(self):
+        res = self._checkout(discount_percent=10, items=[{
+            'product': self.product.product_id, 'quantity': 2, 'unit_price': '15000.00',
+            'discount_type': 'amount', 'discount_value': '5000',
+        }])
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        # Line: 30000 - 5000 = 25000, then -10% cart-level = 22500
+        self.assertEqual(Decimal(res.data['total_amount']), Decimal('22500.00'))
+
     def test_insufficient_stock_rolls_back_whole_order(self):
         res = self._checkout(items=[{'product': self.product.product_id, 'quantity': 999, 'unit_price': '15000.00'}])
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)

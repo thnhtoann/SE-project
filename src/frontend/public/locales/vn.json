@@ -140,6 +140,8 @@
     "out_of_stock": "Hết hàng",
     "subtotal": "Tạm tính",
     "discount": "Giảm giá",
+    "item_discount": "Giảm giá sản phẩm",
+    "clear_discount": "Bỏ giảm giá",
     "customer_owes": "Khách phải trả",
     "auto_print_invoice": "Tự động in hóa đơn",
     "checkout": "Thanh toán",

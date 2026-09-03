@@ -225,10 +225,25 @@ class Order(models.Model):
 
 # 12. Bảng ORDER_DETAIL
 class OrderDetail(models.Model):
+    DISCOUNT_PERCENT = 'percent'
+    DISCOUNT_AMOUNT = 'amount'
+    DISCOUNT_TYPE_CHOICES = [
+        (DISCOUNT_PERCENT, 'Percent'),
+        (DISCOUNT_AMOUNT, 'Amount'),
+    ]
+
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     quantity = models.IntegerField()
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    # Per-line discount the cashier applied at checkout (POS sales cart) --
+    # independent of the whole-cart discount_percent on Order, and separate
+    # from the catalog-wide Discount model (that one's for the Discounts
+    # admin page, not applied automatically here). sub_total already has it
+    # baked in; these two fields exist only so the receipt/reports can show
+    # what was actually applied.
+    discount_type = models.CharField(max_length=10, choices=DISCOUNT_TYPE_CHOICES, null=True, blank=True)
+    discount_value = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     sub_total = models.DecimalField(max_digits=10, decimal_places=2)
 
     class Meta:

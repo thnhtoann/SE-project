@@ -326,6 +326,11 @@ class PosCheckoutItemSerializer(serializers.Serializer):
     product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
     quantity = serializers.IntegerField(min_value=1)
     unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'))
+    # Per-line discount the cashier chose at checkout -- 'percent' (0-100) or
+    # 'amount' (flat VND off this line, capped at the line's own total in
+    # core/checkout.py so it can never go negative).
+    discount_type = serializers.ChoiceField(choices=['percent', 'amount'], required=False, allow_null=True, default=None)
+    discount_value = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0'), required=False, default=Decimal('0'))
 
 
 class PosCheckoutSerializer(serializers.Serializer):
