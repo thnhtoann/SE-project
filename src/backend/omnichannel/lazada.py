@@ -19,7 +19,18 @@ response (no outbound network access from this dev environment to a real
 authorized account). If a field is missing/renamed in your sandbox's actual
 response, LazadaSyncOrdersView reports the raw error per order in its
 `errors` list so it's a quick fix, not a silent failure.
+
+Correction (found by exercising a real sandbox account): Lazada's app
+console can be configured with "Message Push" notifications, which Lazada
+POSTs unprompted to whatever URL the app registered -- for this app, that's
+the same URL as the OAuth redirect (LazadaCallbackView), since that's the
+only URL registered in the console. So this integration *does* receive
+webhook-style pushes after all, just not by this project's own design --
+see LazadaCallbackView.post/_handle_lazada_push.
 """
+import hashlib
+import hmac
+import json
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
@@ -39,7 +50,7 @@ from rest_framework.views import APIView
 from core.models import Batch, Category, Product, Store, StoreInventory
 from core.permissions import IsChainManager, IsStoreManager
 from .lazop import LazopClient, LazopRequest
-from .models import LazadaCredential
+from .models import LazadaCredential, LazadaProductPush
 from .services import OrderSaveError, save_normalized_order
 
 logger = logging.getLogger(__name__)
@@ -55,6 +66,73 @@ def _auth_client():
 
 def _api_client():
     return LazopClient(settings.LAZADA_API_URL, settings.LAZADA_APP_KEY, settings.LAZADA_APP_SECRET)
+
+
+def _verify_lazada_push_signature(request) -> bool:
+    """Best-effort check of Lazada's Message Push signature (observed as a
+    64-hex-char value in the `Authorization` header of real sandbox push
+    traffic). Algorithm here (HMAC-SHA256 of the raw body, keyed by
+    LAZADA_APP_SECRET, lowercase hex) is inferred from that traffic, not
+    confirmed against Lazada's docs (unreachable from this dev environment)
+    -- a mismatch is logged as inconclusive, not treated as proven spoofing,
+    since a wrong assumed algorithm would otherwise make this reject every
+    real push too."""
+    signature = request.headers.get('Authorization', '')
+    if not signature or not settings.LAZADA_APP_SECRET:
+        return False
+    expected = hmac.new(
+        settings.LAZADA_APP_SECRET.encode('utf-8'), request.body, hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+def _handle_lazada_push(request, body: dict):
+    """ Xử lý 1 Message Push từ Lazada (xem module docstring + LazadaCallbackView).
+    message_type dưới đây chỉ gồm các giá trị đã thấy thực tế qua sandbox (3 =
+    đổi trạng thái sản phẩm, 6 = đổi tồn kho) -- loại khác chỉ log lại, không
+    có schema tài liệu để xử lý thêm. """
+    if not _verify_lazada_push_signature(request):
+        logger.warning("Lazada push: chữ ký không khớp hoặc thiếu (xem _verify_lazada_push_signature) -- vẫn xử lý")
+
+    message_type = body.get('message_type')
+    data = body.get('data') or {}
+    logger.info("Lazada push received: message_type=%r data=%r", message_type, data)
+
+    if message_type == 3:
+        item_id = data.get('item_id')
+        action = data.get('action', '')
+        for sku in data.get('sku_list') or []:
+            barcode = sku.get('seller_sku')
+            if not barcode:
+                continue
+            product = Product.objects.filter(barcode=barcode).first()
+            if not product:
+                continue
+            LazadaProductPush.objects.update_or_create(
+                product=product,
+                defaults={'item_id': str(item_id or ''), 'sku_id': str(sku.get('sku_id') or ''), 'status': action},
+            )
+
+    elif message_type == 6:
+        barcode = data.get('seller_sku')
+        quantity = data.get('real_quantity')
+        if not barcode or quantity is None:
+            return
+        product = Product.objects.filter(barcode=barcode).first()
+        if not product:
+            return
+
+        LazadaProductPush.objects.update_or_create(
+            product=product,
+            defaults={'sku_id': str(data.get('sku_id') or ''), 'last_quantity': quantity},
+        )
+
+        credential = LazadaCredential.objects.select_related('store').first()
+        if credential:
+            inventory = StoreInventory.objects.filter(store=credential.store, batch__product=product).first()
+            if inventory:
+                inventory.quantity = quantity
+                inventory.save(update_fields=['quantity'])
 
 
 def _parse_lazada_datetime(value: str) -> datetime:
@@ -95,10 +173,23 @@ class LazadaAuthorizeView(APIView):
 
 class LazadaCallbackView(APIView):
     """ Bước 2: Lazada redirect trình duyệt của seller về đây kèm ?code=...
-    -> Đổi code lấy access/refresh token -> Lưu LazadaCredential. """
+    -> Đổi code lấy access/refresh token -> Lưu LazadaCredential.
+
+    Cũng là nơi nhận Message Push (xem module docstring) -- Lazada Console
+    chỉ cho đăng ký 1 URL, nên push message và OAuth callback dùng chung URL
+    này; post() tự phân biệt bằng key "message_type" trong JSON body. """
     permission_classes = []
 
     def post(self, request):
+        try:
+            body = json.loads(request.body or b'{}')
+        except ValueError:
+            body = None
+
+        if isinstance(body, dict) and 'message_type' in body:
+            _handle_lazada_push(request, body)
+            return Response(status=status.HTTP_200_OK)
+
         # Lazada's console "verify" step pings the redirect URI with POST
         # (the real OAuth redirect from a seller's browser is always GET).
         return self.get(request)
