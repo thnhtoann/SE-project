@@ -32,16 +32,16 @@ const buildReceiptHtml = (receipt: PrintableReceipt): string => {
 <meta charset="utf-8" />
 <title>Receipt #${receipt.orderId}</title>
 <style>
-    @page { size: 80mm auto; margin: 4mm; }
+    @page { size: 80mm auto; margin: 2mm; }
     * { box-sizing: border-box; }
-    body { font-family: 'Courier New', Courier, monospace; font-size: 12px; width: 72mm; margin: 0; color: #000; }
+    body { font-family: 'Courier New', Courier, monospace; font-size: 15px; width: 76mm; margin: 0; color: #000; }
     .center { text-align: center; }
-    .store-name { font-size: 16px; font-weight: bold; }
-    .divider { border-top: 1px dashed #000; margin: 6px 0; }
-    .row { display: flex; justify-content: space-between; padding: 2px 0; }
-    .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; padding-top: 4px; }
-    .meta { font-size: 11px; margin-bottom: 2px; }
-    .footer { margin-top: 10px; }
+    .store-name { font-size: 22px; font-weight: bold; }
+    .divider { border-top: 1px dashed #000; margin: 8px 0; }
+    .row { display: flex; justify-content: space-between; padding: 3px 0; }
+    .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; padding-top: 6px; }
+    .meta { font-size: 13px; margin-bottom: 3px; }
+    .footer { margin-top: 14px; font-size: 13px; }
 </style>
 </head>
 <body>
