@@ -161,9 +161,9 @@ interface SocialLoginResponse {
     device_token: string | null;
 }
 
-export const loginWithGoogle = createAsyncThunk('session/loginWithGoogle', async (id_token: string, { rejectWithValue }) => {
+export const loginWithGoogle = createAsyncThunk('session/loginWithGoogle', async (access_token: string, { rejectWithValue }) => {
     try {
-        const data = await apiFetch<SocialLoginResponse>('/auth/google/', { method: 'POST', body: { id_token } });
+        const data = await apiFetch<SocialLoginResponse>('/auth/google/', { method: 'POST', body: { access_token } });
         setTokens({ access: data.access, refresh: data.refresh, role: data.role, username: data.username, staffId: data.staff_id, storeId: data.store_id });
         return { username: data.username, role: data.role, staffId: data.staff_id, storeId: data.store_id };
     } catch (err) {
