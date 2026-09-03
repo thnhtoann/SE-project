@@ -772,7 +772,7 @@ class RegisterRequestOTPView(APIView):
         send_mail(
             subject='[Smart Procurement] Mã OTP Xác Thực Đăng Ký',
             message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
-            from_email='no-reply@smartprocurement.com',
+            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[email],
             fail_silently=False,
         )
@@ -914,7 +914,7 @@ class LoginRequestOTPView(APIView):
             send_mail(
                 subject='[Smart Procurement] Mã OTP Đăng Nhập',
                 message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
-                from_email='no-reply@smartprocurement.com',
+                from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
                 fail_silently=False,
             )
@@ -1183,7 +1183,7 @@ class PasswordResetRequestOTPView(APIView):
             send_mail(
                 subject='[Smart Procurement] Mã OTP Đặt Lại Mật Khẩu',
                 message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
-                from_email='no-reply@smartprocurement.com',
+                from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
                 fail_silently=False,
             )

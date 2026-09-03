@@ -211,4 +211,18 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=4),
 }
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# OTP emails (register/login/password-reset — see core/views.py send_mail
+# calls). Setting EMAIL_HOST switches to real SMTP delivery automatically;
+# leaving it blank keeps the default console backend (OTP just printed to
+# the server log — fine for local dev, useless in production). For Gmail,
+# EMAIL_HOST=smtp.gmail.com + an App Password (not the account password,
+# requires 2FA on the Google account) as EMAIL_HOST_PASSWORD; most other
+# providers (SendGrid, Mailgun, Amazon SES, ...) have an equivalent SMTP
+# relay + app-specific credential.
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST else 'django.core.mail.backends.console.EmailBackend'
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '1') == '1'
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'no-reply@smartprocurement.com')
