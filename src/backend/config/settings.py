@@ -212,15 +212,25 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=4),
 }
 # OTP emails (register/login/password-reset — see core/views.py send_mail
-# calls). Setting EMAIL_HOST switches to real SMTP delivery automatically;
-# leaving it blank keeps the default console backend (OTP just printed to
-# the server log — fine for local dev, useless in production). For Gmail,
-# EMAIL_HOST=smtp.gmail.com + an App Password (not the account password,
-# requires 2FA on the Google account) as EMAIL_HOST_PASSWORD; most other
-# providers (SendGrid, Mailgun, Amazon SES, ...) have an equivalent SMTP
-# relay + app-specific credential.
+# calls). Three tiers, picked automatically by which vars are set:
+#   1. RESEND_API_KEY set -> core.email_backend.ResendEmailBackend (HTTPS
+#      API, works on every hosting plan). Preferred -- see the module
+#      docstring for why plain SMTP doesn't work on Railway's Free/Trial/
+#      Hobby plans (outbound SMTP is blocked there; connections just hang
+#      for 20-130s and then fail, which is what sending OTP emails looked
+#      like before this was added).
+#   2. Else EMAIL_HOST set -> real SMTP (works if the host allows outbound
+#      SMTP, e.g. Railway Pro+, or any non-Railway deployment).
+#   3. Else -> Django's console backend (OTP just printed to the server
+#      log) -- fine for local dev, useless in production.
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST else 'django.core.mail.backends.console.EmailBackend'
+if RESEND_API_KEY:
+    EMAIL_BACKEND = 'core.email_backend.ResendEmailBackend'
+elif EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
