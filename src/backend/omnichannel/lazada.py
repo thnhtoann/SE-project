@@ -49,7 +49,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.models import Batch, Category, Product, Store, StoreInventory
+from core.models import Batch, Category, Notification, Order, Product, Staff, Store, StoreInventory
 from core.permissions import IsChainManager, IsStoreManager
 from .lazop import LazopClient, LazopRequest
 from .models import LazadaCredential, LazadaProductPush
@@ -199,10 +199,36 @@ def _handle_lazada_push(request, body: dict):
             'payment_method': 'Lazada',
             'items': list(items_by_sku.values()),
         }
+        # Check before saving (not after) -- save_normalized_order returns
+        # the same Order whether it just created it or a duplicate status
+        # push found it already there, so this is the only way to tell
+        # "first time" apart and notify exactly once per order.
+        already_existed = Order.objects.filter(order_type='Lazada', external_order_id=str(trade_order_id)).exists()
         try:
-            save_normalized_order('Lazada', normalized)
+            order = save_normalized_order('Lazada', normalized)
         except OrderSaveError:
             logger.exception("Lazada push: không lưu được order trade_order_id=%s", trade_order_id)
+        else:
+            if not already_existed:
+                _notify_lazada_order(order)
+
+
+def _notify_lazada_order(order):
+    """ Thông báo có đơn hàng mới từ Lazada (qua push) cho Store Manager của
+    cửa hàng đó + mọi Chain Manager/Admin -- không có cashier cụ thể vì đây
+    là đơn kênh ngoài (không qua POS), khác _notify_payment_success
+    (core/checkout.py) vốn dành riêng cho đơn thanh toán tại quầy. """
+    recipients = {}
+    for s in Staff.objects.filter(store=order.store, role__role_name='Store Manager'):
+        recipients[s.staff_id] = s
+    for s in Staff.objects.filter(role__role_name__in=['Chain Manager', 'Admin']):
+        recipients[s.staff_id] = s
+
+    message = f"Đơn hàng mới từ Lazada #{order.external_order_id} tại {order.store.store_name} ({order.total_amount:,.0f}đ)."
+    Notification.objects.bulk_create([
+        Notification(recipient=s, notification_type='lazada_order_received', message=message, order=order)
+        for s in recipients.values()
+    ])
 
 
 def _parse_lazada_datetime(value: str) -> datetime:
