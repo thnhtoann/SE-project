@@ -91,8 +91,15 @@ def _verify_lazada_push_signature(request) -> bool:
 def _handle_lazada_push(request, body: dict):
     """ Xử lý 1 Message Push từ Lazada (xem module docstring + LazadaCallbackView).
     message_type dưới đây chỉ gồm các giá trị đã thấy thực tế qua sandbox (3 =
-    đổi trạng thái sản phẩm, 6 = đổi tồn kho) -- loại khác chỉ log lại, không
-    có schema tài liệu để xử lý thêm. """
+    đổi trạng thái sản phẩm, 6 = đổi tồn kho, 0 = đổi trạng thái đơn hàng) --
+    loại khác chỉ log lại, không có schema tài liệu để xử lý thêm.
+
+    Tài khoản seller sandbox dùng chung cho cả nhóm/lớp -- mọi push (kể cả
+    đơn hàng) đều có cùng 1 seller_id nên không dùng seller_id để phân biệt
+    "đơn của mình" được. message_type=0 (đơn hàng) tự gọi thêm
+    /order/items/get để lấy SKU trong đơn rồi đối chiếu barcode với DB Mart+
+    -- có khớp mới coi là đơn của mình (log rõ), không khớp thì bỏ qua,
+    giống cách lọc sản phẩm/tồn kho ở message_type 3/6. """
     if not _verify_lazada_push_signature(request):
         logger.warning("Lazada push: chữ ký không khớp hoặc thiếu (xem _verify_lazada_push_signature) -- vẫn xử lý")
 
@@ -135,6 +142,40 @@ def _handle_lazada_push(request, body: dict):
             if inventory:
                 inventory.quantity = quantity
                 inventory.save(update_fields=['quantity'])
+
+    elif message_type == 0:
+        trade_order_id = data.get('trade_order_id')
+        order_status = data.get('order_status', '')
+        if not trade_order_id:
+            return
+
+        credential = LazadaCredential.objects.select_related('store').first()
+        if not credential:
+            return
+        try:
+            credential = _refresh_token_if_needed(credential)
+            items = _fetch_order_items(credential.access_token, trade_order_id)
+        except Exception:
+            logger.exception("Lazada push: không lấy được order items cho trade_order_id=%s", trade_order_id)
+            return
+
+        matched_barcodes = [
+            barcode for barcode in (
+                item.get('seller_sku') or item.get('SellerSku') or item.get('sku') for item in items
+            )
+            if barcode and Product.objects.filter(barcode=barcode).exists()
+        ]
+
+        if matched_barcodes:
+            logger.info(
+                "Lazada order push LÀ đơn của mình: trade_order_id=%s status=%s matched_barcodes=%r",
+                trade_order_id, order_status, matched_barcodes,
+            )
+        else:
+            logger.info(
+                "Lazada order push KHÔNG PHẢI đơn của mình (không khớp barcode nào): trade_order_id=%s status=%s",
+                trade_order_id, order_status,
+            )
 
 
 def _parse_lazada_datetime(value: str) -> datetime:
