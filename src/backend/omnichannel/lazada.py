@@ -356,6 +356,39 @@ class LazadaSyncOrdersView(APIView):
         })
 
 
+class LazadaCategoryTreeView(APIView):
+    """ Lấy category tree từ Lazada (/category/tree/get) -- dùng để chọn
+    một category_id hợp lệ trước khi tạo sản phẩm qua /product/create,
+    vốn bắt buộc PrimaryCategory phải là leaf category id của Lazada. """
+    permission_classes = [IsChainManager]
+
+    def get(self, request):
+        credential = LazadaCredential.objects.select_related('store').first()
+        if not credential:
+            return Response(
+                {"error": "Chưa kết nối tài khoản Lazada nào."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            credential = _refresh_token_if_needed(credential)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        req = LazopRequest('/category/tree/get', http_method='GET')
+        try:
+            response = _api_client().execute(req, credential.access_token)
+        except Exception:
+            logger.exception("Lazada /category/tree/get request failed")
+            return Response({"error": "Không gọi được API Lazada /category/tree/get."}, status=status.HTTP_502_BAD_GATEWAY)
+
+        body = response.body or {}
+        if response.code and response.code != '0':
+            return Response({"error": f"{response.code}: {response.message}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response(body.get('data') or body)
+
+
 class LazadaProductsView(APIView):
     """ Lấy danh sách sản phẩm thật từ tài khoản Lazada đã kết nối. Trả về
     dạng phẳng theo từng SKU (ShopSku khớp với shop_sku dùng trong đồng bộ
