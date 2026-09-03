@@ -146,6 +146,7 @@ def _handle_lazada_push(request, body: dict):
     elif message_type == 0:
         trade_order_id = data.get('trade_order_id')
         order_status = data.get('order_status', '')
+        status_update_time = data.get('status_update_time')
         if not trade_order_id:
             return
 
@@ -159,23 +160,49 @@ def _handle_lazada_push(request, body: dict):
             logger.exception("Lazada push: không lấy được order items cho trade_order_id=%s", trade_order_id)
             return
 
-        matched_barcodes = [
-            barcode for barcode in (
-                item.get('seller_sku') or item.get('SellerSku') or item.get('sku') for item in items
-            )
-            if barcode and Product.objects.filter(barcode=barcode).exists()
-        ]
+        # Gom theo barcode (giống _normalize_lazada_order) -- chỉ giữ item có
+        # barcode khớp Product đã có trong Mart+; còn lại coi như không phải
+        # đơn của cửa hàng mình (tài khoản sandbox dùng chung cả nhóm).
+        items_by_sku = {}
+        for item in items:
+            barcode = item.get('seller_sku') or item.get('SellerSku') or item.get('sku')
+            if not barcode or not Product.objects.filter(barcode=barcode).exists():
+                continue
+            quantity = int(item.get('quantity') or 1)
+            unit_price = item.get('item_price') or item.get('paid_price') or '0'
+            entry = items_by_sku.setdefault(barcode, {'barcode': barcode, 'quantity': 0, 'unit_price': unit_price})
+            entry['quantity'] += quantity
 
-        if matched_barcodes:
-            logger.info(
-                "Lazada order push LÀ đơn của mình: trade_order_id=%s status=%s matched_barcodes=%r",
-                trade_order_id, order_status, matched_barcodes,
-            )
-        else:
+        if not items_by_sku:
             logger.info(
                 "Lazada order push KHÔNG PHẢI đơn của mình (không khớp barcode nào): trade_order_id=%s status=%s",
                 trade_order_id, order_status,
             )
+            return
+
+        logger.info(
+            "Lazada order push LÀ đơn của mình: trade_order_id=%s status=%s matched_barcodes=%r",
+            trade_order_id, order_status, list(items_by_sku),
+        )
+
+        # save_normalized_order is idempotent per (platform, external_order_id)
+        # -- safe to call again on every status push (pending/unpaid/packed/...)
+        # for the same order without double-creating it or double-deducting
+        # stock; it just returns the existing Order after the first save.
+        order_date = (
+            datetime.fromtimestamp(int(status_update_time), tz=VN_TZ) if status_update_time else timezone.now()
+        )
+        normalized = {
+            'external_order_id': str(trade_order_id),
+            'store_id': credential.store_id,
+            'order_date': order_date,
+            'payment_method': 'Lazada',
+            'items': list(items_by_sku.values()),
+        }
+        try:
+            save_normalized_order('Lazada', normalized)
+        except OrderSaveError:
+            logger.exception("Lazada push: không lưu được order trade_order_id=%s", trade_order_id)
 
 
 def _parse_lazada_datetime(value: str) -> datetime:
