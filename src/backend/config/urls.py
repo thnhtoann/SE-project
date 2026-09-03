@@ -13,6 +13,8 @@ from core.views import (
     RevenueByChannelView, PeakHoursView,
     PasswordResetRequestOTPView,
     PasswordResetVerifyOTPView,
+    GoogleLoginView,
+    FacebookLoginView,
 )
 
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -30,6 +32,11 @@ urlpatterns = [
     # Luồng Đăng nhập 2 lớp (Mới)
     path('api/login/request-otp/', LoginRequestOTPView.as_view(), name='login-request-otp'),
     path('api/login/verify-otp/', LoginVerifyOTPView.as_view(), name='login-verify-otp'),
+
+    # Đăng nhập/Đăng ký qua Google & Facebook (bỏ qua OTP, tự tạo tài khoản
+    # Chain Manager nếu email chưa từng đăng ký)
+    path('api/auth/google/', GoogleLoginView.as_view(), name='auth-google'),
+    path('api/auth/facebook/', FacebookLoginView.as_view(), name='auth-facebook'),
 
     # Quên mật khẩu 2 bước
     path('api/password-reset/request-otp/', PasswordResetRequestOTPView.as_view(), name='password-reset-request-otp'),

@@ -39,6 +39,19 @@ FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000')
 GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
 GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
 
+# Google Identity Services (Sign in with Google) — from the OAuth 2.0 Client
+# ID ("Web application" type) in the Google Cloud Console. The frontend sends
+# the OAuth access token it gets client-side; GoogleLoginView verifies it
+# against this same Client ID as the expected audience.
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
+
+# Facebook Login — App ID/Secret from the app's Settings > Basic page in the
+# Facebook Developers console. FacebookLoginView uses the secret server-side
+# only, to verify the access token the frontend obtained via the Facebook JS
+# SDK (never exposed to the browser).
+FACEBOOK_APP_ID = os.environ.get('FACEBOOK_APP_ID', '')
+FACEBOOK_APP_SECRET = os.environ.get('FACEBOOK_APP_SECRET', '')
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')

@@ -148,6 +148,39 @@ export const verifyOtp = createAsyncThunk(
     }
 );
 
+// Google/Facebook login: the provider has already verified the user's
+// identity/email, so the backend skips the OTP step and returns tokens
+// directly (same response shape as verifyOtp).
+interface SocialLoginResponse {
+    username: string;
+    access: string;
+    refresh: string;
+    role: string;
+    staff_id: number;
+    store_id: number | null;
+    device_token: string | null;
+}
+
+export const loginWithGoogle = createAsyncThunk('session/loginWithGoogle', async (id_token: string, { rejectWithValue }) => {
+    try {
+        const data = await apiFetch<SocialLoginResponse>('/auth/google/', { method: 'POST', body: { id_token } });
+        setTokens({ access: data.access, refresh: data.refresh, role: data.role, username: data.username, staffId: data.staff_id, storeId: data.store_id });
+        return { username: data.username, role: data.role, staffId: data.staff_id, storeId: data.store_id };
+    } catch (err) {
+        return rejectWithValue(parseError(err));
+    }
+});
+
+export const loginWithFacebook = createAsyncThunk('session/loginWithFacebook', async (access_token: string, { rejectWithValue }) => {
+    try {
+        const data = await apiFetch<SocialLoginResponse>('/auth/facebook/', { method: 'POST', body: { access_token } });
+        setTokens({ access: data.access, refresh: data.refresh, role: data.role, username: data.username, staffId: data.staff_id, storeId: data.store_id });
+        return { username: data.username, role: data.role, staffId: data.staff_id, storeId: data.store_id };
+    } catch (err) {
+        return rejectWithValue(parseError(err));
+    }
+});
+
 export const logout = createAsyncThunk('session/logout', async () => {
     const refresh = getRefreshToken();
     if (refresh) {
@@ -243,6 +276,48 @@ const sessionSlice = createSlice({
                 const payload = action.payload as ParsedError | undefined;
                 state.status = 'error';
                 state.error = payload?.message ?? 'OTP verification failed';
+                state.errorCode = payload?.code ?? null;
+            })
+            .addCase(loginWithGoogle.pending, (state) => {
+                state.status = 'loading';
+                state.error = null;
+                state.errorCode = null;
+            })
+            .addCase(loginWithGoogle.fulfilled, (state, action) => {
+                state.status = 'authenticated';
+                state.isAuthenticated = true;
+                state.username = action.payload.username;
+                state.role = action.payload.role;
+                state.staffId = action.payload.staffId;
+                state.storeId = action.payload.storeId;
+                state.error = null;
+                state.errorCode = null;
+            })
+            .addCase(loginWithGoogle.rejected, (state, action: PayloadAction<unknown>) => {
+                const payload = action.payload as ParsedError | undefined;
+                state.status = 'error';
+                state.error = payload?.message ?? 'Google sign-in failed';
+                state.errorCode = payload?.code ?? null;
+            })
+            .addCase(loginWithFacebook.pending, (state) => {
+                state.status = 'loading';
+                state.error = null;
+                state.errorCode = null;
+            })
+            .addCase(loginWithFacebook.fulfilled, (state, action) => {
+                state.status = 'authenticated';
+                state.isAuthenticated = true;
+                state.username = action.payload.username;
+                state.role = action.payload.role;
+                state.staffId = action.payload.staffId;
+                state.storeId = action.payload.storeId;
+                state.error = null;
+                state.errorCode = null;
+            })
+            .addCase(loginWithFacebook.rejected, (state, action: PayloadAction<unknown>) => {
+                const payload = action.payload as ParsedError | undefined;
+                state.status = 'error';
+                state.error = payload?.message ?? 'Facebook sign-in failed';
                 state.errorCode = payload?.code ?? null;
             })
             .addCase(logout.fulfilled, (state) => {

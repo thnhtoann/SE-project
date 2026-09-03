@@ -12,6 +12,8 @@ const UNAUTHENTICATED_PATHS = [
     '/register/verify-otp/',
     '/password-reset/request-otp/',
     '/password-reset/verify-otp/',
+    '/auth/google/',
+    '/auth/facebook/',
 ];
 
 export class ApiError extends Error {

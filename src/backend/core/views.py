@@ -1,8 +1,11 @@
 import hashlib
 import os
 import random
+import re
 import secrets
+import requests
 from datetime import timedelta
+from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import default_storage
 from django.db import models, transaction, IntegrityError
@@ -941,6 +944,175 @@ class LoginVerifyOTPView(APIView):
                 {"error": "Yêu cầu không hợp lệ!", "error_code": "invalid_request"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+
+# ==========================================
+# ĐĂNG NHẬP / ĐĂNG KÝ QUA GOOGLE & FACEBOOK
+# ==========================================
+# Không dùng OTP: nhà cung cấp OAuth đã tự xác thực danh tính và quyền sở
+# hữu email, nên bỏ qua bước OTP như luồng username/password ở trên.
+# Nếu email chưa khớp Staff nào có sẵn, tự động tạo tài khoản Chain Manager
+# mới (giống hệt chính sách của RegisterVerifyOTPView) với mật khẩu "unusable"
+# — tài khoản chỉ đăng nhập được qua social login cho tới khi tự đặt mật khẩu
+# qua luồng "quên mật khẩu".
+
+def _get_or_create_social_staff(email, full_name):
+    staff = Staff.objects.filter(email__iexact=email).first()
+    if staff:
+        return staff
+
+    role, _ = Role.objects.get_or_create(role_name='Chain Manager')
+    base_username = re.sub(r'[^a-zA-Z0-9_.-]', '', email.split('@')[0]) or 'user'
+    username = base_username
+    suffix = 1
+    while Staff.objects.filter(username=username).exists():
+        suffix += 1
+        username = f"{base_username}{suffix}"
+
+    staff = Staff(
+        username=username,
+        full_name=full_name or username,
+        email=email,
+        role=role,
+        is_active=True,
+    )
+    staff.set_unusable_password()
+    staff.save()
+    return staff
+
+
+class GoogleLoginView(APIView):
+    """ Đăng nhập bằng Google OAuth access token (lấy ở client qua Google
+    Identity Services' token client, popup flow) -> xác thực token với
+    Google (tokeninfo để check đúng audience/client, userinfo để lấy hồ sơ)
+    -> tìm hoặc tạo Staff theo email -> cấp token JWT luôn. """
+    permission_classes = []
+
+    def post(self, request):
+        access_token = request.data.get('access_token')
+        if not access_token:
+            return Response(
+                {"error": "Thiếu access_token.", "error_code": "access_token_missing"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not settings.GOOGLE_OAUTH_CLIENT_ID:
+            return Response(
+                {"error": "Đăng nhập Google chưa được cấu hình.", "error_code": "oauth_not_configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        try:
+            tokeninfo_response = requests.get(
+                'https://www.googleapis.com/oauth2/v3/tokeninfo',
+                params={'access_token': access_token},
+                timeout=10,
+            )
+            tokeninfo = tokeninfo_response.json()
+        except requests.RequestException:
+            tokeninfo_response, tokeninfo = None, {}
+
+        # `aud` check stops a token minted for a different Google app being
+        # replayed against this endpoint (mirrors the Facebook debug_token check).
+        if tokeninfo_response is None or tokeninfo_response.status_code != 200 or tokeninfo.get('aud') != settings.GOOGLE_OAUTH_CLIENT_ID:
+            return Response(
+                {"error": "Token Google không hợp lệ.", "error_code": "google_token_invalid"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        try:
+            userinfo_response = requests.get(
+                'https://www.googleapis.com/oauth2/v3/userinfo',
+                headers={'Authorization': f'Bearer {access_token}'},
+                timeout=10,
+            )
+            profile = userinfo_response.json()
+        except requests.RequestException:
+            userinfo_response, profile = None, {}
+
+        if userinfo_response is None or userinfo_response.status_code != 200 or not profile.get('email'):
+            return Response(
+                {"error": "Token Google không hợp lệ.", "error_code": "google_token_invalid"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        if not profile.get('email_verified'):
+            return Response(
+                {"error": "Email Google chưa được xác minh.", "error_code": "email_not_verified"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        user = _get_or_create_social_staff(profile['email'], profile.get('name', ''))
+        if not user.is_active:
+            return Response(
+                {"error": "Tài khoản đã bị vô hiệu hóa.", "error_code": "account_disabled"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        return Response({'username': user.username, **_issue_tokens(user, remember_me=False)}, status=status.HTTP_200_OK)
+
+
+class FacebookLoginView(APIView):
+    """ Đăng nhập bằng Facebook access token (lấy ở client qua Facebook JS
+    SDK) -> xác thực token với Graph API -> tìm hoặc tạo Staff theo email
+    -> cấp token JWT luôn. """
+    permission_classes = []
+
+    def post(self, request):
+        access_token = request.data.get('access_token')
+        if not access_token:
+            return Response(
+                {"error": "Thiếu access_token.", "error_code": "access_token_missing"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not settings.FACEBOOK_APP_ID or not settings.FACEBOOK_APP_SECRET:
+            return Response(
+                {"error": "Đăng nhập Facebook chưa được cấu hình.", "error_code": "oauth_not_configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        app_access_token = f"{settings.FACEBOOK_APP_ID}|{settings.FACEBOOK_APP_SECRET}"
+        try:
+            debug_response = requests.get(
+                'https://graph.facebook.com/debug_token',
+                params={'input_token': access_token, 'access_token': app_access_token},
+                timeout=10,
+            )
+            debug_data = debug_response.json().get('data', {})
+        except requests.RequestException:
+            debug_data = {}
+
+        # is_valid + app_id check stops a token minted for a different Facebook
+        # app being replayed against this endpoint.
+        if not debug_data.get('is_valid') or str(debug_data.get('app_id')) != str(settings.FACEBOOK_APP_ID):
+            return Response(
+                {"error": "Token Facebook không hợp lệ.", "error_code": "facebook_token_invalid"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        try:
+            profile_response = requests.get(
+                'https://graph.facebook.com/me',
+                params={'fields': 'id,name,email', 'access_token': access_token},
+                timeout=10,
+            )
+            profile = profile_response.json()
+        except requests.RequestException:
+            profile = {}
+
+        email = profile.get('email')
+        if not email:
+            return Response(
+                {"error": "Tài khoản Facebook không có email hoặc chưa cấp quyền chia sẻ email.", "error_code": "facebook_email_missing"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = _get_or_create_social_staff(email, profile.get('name', ''))
+        if not user.is_active:
+            return Response(
+                {"error": "Tài khoản đã bị vô hiệu hóa.", "error_code": "account_disabled"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        return Response({'username': user.username, **_issue_tokens(user, remember_me=False)}, status=status.HTTP_200_OK)
 
 
 class PasswordResetRequestOTPView(APIView):

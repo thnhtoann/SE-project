@@ -15,6 +15,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
   redis:
     image: redis:7-alpine
@@ -24,11 +29,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
   backend:
     build:
       context: ./src/backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-insecure-change-me-in-production}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
@@ -50,6 +65,9 @@ services:
       LAZADA_AUTHORIZE_PAGE_URL: ${LAZADA_AUTHORIZE_PAGE_URL:-https://auth.lazada.com/oauth/authorize}
       LAZADA_REDIRECT_URI: ${LAZADA_REDIRECT_URI:-http://localhost:8000/api/lazada/callback/}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
     volumes:
       - ./src/backend:/app
     ports:
@@ -64,8 +82,15 @@ services:
     build:
       context: ./src/frontend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1.5G
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+      NEXT_PUBLIC_FACEBOOK_APP_ID: ${NEXT_PUBLIC_FACEBOOK_APP_ID:-}
       WATCHPACK_POLLING: "true"
     volumes:
       - ./src/frontend:/app
