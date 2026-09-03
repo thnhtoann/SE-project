@@ -17,7 +17,7 @@ const formatCountdown = (remainingMs: number): string => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 };
 
-const KNOWN_ERROR_CODES = ['missing_identifier', 'otp_missing', 'otp_invalid', 'otp_locked', 'invalid_request'];
+const KNOWN_ERROR_CODES = ['missing_identifier', 'account_not_found', 'otp_missing', 'otp_invalid', 'otp_locked', 'invalid_request'];
 
 const ComponentsAuthResetPasswordForm = () => {
     const { t } = getTranslation();

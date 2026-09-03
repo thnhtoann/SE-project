@@ -1159,9 +1159,10 @@ class FacebookLoginView(APIView):
 
 class PasswordResetRequestOTPView(APIView):
     """ Bước 1: Nhập username/email -> Gửi OTP đặt lại mật khẩu qua Email.
-    Luôn trả về cùng một thông báo dù tài khoản có tồn tại hay không, để
-    tránh lộ thông tin tài khoản nào đang được sử dụng (account enumeration).
-    """
+    Trả lỗi rõ ràng nếu không tìm thấy tài khoản -- đánh đổi có chủ đích:
+    chấp nhận rủi ro dò tài khoản (account enumeration) để đổi lấy thông
+    báo dễ hiểu hơn cho người dùng thật (quyết định sản phẩm, không phải
+    sơ suất bảo mật). """
     permission_classes = []
 
     def post(self, request):
@@ -1176,20 +1177,25 @@ class PasswordResetRequestOTPView(APIView):
             models.Q(username=identifier) | models.Q(email__iexact=identifier)
         ).first()
 
-        if user and user.email:
-            otp_record, _ = OTPRecord.objects.get_or_create(user=user)
-            otp = otp_record.generate_otp()
-            cache.delete(f"password_reset_attempts_{user.username}")
-            send_mail(
-                subject='[Smart Procurement] Mã OTP Đặt Lại Mật Khẩu',
-                message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
+        if not user or not user.email:
+            return Response(
+                {"error": "Không tìm thấy tài khoản với tên đăng nhập hoặc email này.", "error_code": "account_not_found"},
+                status=status.HTTP_404_NOT_FOUND
             )
 
+        otp_record, _ = OTPRecord.objects.get_or_create(user=user)
+        otp = otp_record.generate_otp()
+        cache.delete(f"password_reset_attempts_{user.username}")
+        send_mail(
+            subject='[Smart Procurement] Mã OTP Đặt Lại Mật Khẩu',
+            message=f'Mã xác thực OTP của bạn là: {otp}. Mã có hiệu lực trong 5 phút.',
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+
         return Response({
-            "message": "Nếu tài khoản tồn tại, một mã OTP đã được gửi tới email đã đăng ký.",
+            "message": "Một mã OTP đã được gửi tới email đã đăng ký.",
         }, status=status.HTTP_200_OK)
 
 

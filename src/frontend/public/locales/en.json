@@ -562,6 +562,7 @@
     "error_invalid_credentials": "Incorrect username/email or password. {attempts} attempt(s) left.",
     "error_identifier_required": "Please enter your username or email.",
     "error_missing_identifier": "Please enter your username or email.",
+    "error_account_not_found": "No account found with this username or email.",
     "error_otp_missing": "Please enter the verification code.",
     "error_otp_invalid": "Incorrect or expired verification code.",
     "error_otp_locked": "Too many incorrect codes. Please resend a new code.",
