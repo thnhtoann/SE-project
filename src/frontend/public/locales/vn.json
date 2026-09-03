@@ -195,6 +195,8 @@
     "inventory": "Kho hàng",
     "customers": "Khách hàng",
     "transactions": "Đơn hàng",
+    "new_orders": "Đơn hàng mới",
+    "no_new_orders": "Chưa có đơn hàng mới nào.",
     "product_list": "Danh sách sản phẩm",
     "product_details": "Chi tiết sản phẩm",
     "quantity_alert_low_stock": "Tồn kho thấp: {quantity} đơn vị, đã chạm hoặc dưới ngưỡng tối thiểu {threshold}.",

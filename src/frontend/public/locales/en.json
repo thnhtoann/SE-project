@@ -195,6 +195,8 @@
     "inventory": "Inventory",
     "customers": "Customers",
     "transactions": "Orders",
+    "new_orders": "New Orders",
+    "no_new_orders": "No new orders yet.",
     "product_list": "Product List",
     "product_details": "Product Details",
     "quantity_alert_low_stock": "Low stock: {quantity} units, at or below the minimum threshold of {threshold}.",
