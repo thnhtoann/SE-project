@@ -1310,19 +1310,29 @@ class BestWorstSellerView(APIView):
         limit = int(request.query_params.get('limit', 5))
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
+        # 'week'/'month'/'quarter', same convention as RevenueTrendView/
+        # SalesByCategoryView -- omitted (advisor's fetch_sales_performance
+        # never passes it) means all-time, matching this view's original
+        # default before period support existed.
+        period = request.query_params.get('period')
+        if period is not None and period not in ('week', 'month', 'quarter'):
+            return Response({"detail": "period must be one of: week, month, quarter."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Lọc các đơn hàng đã hoàn thành
-        queryset = Order.objects.filter(status__iexact='Completed')
+        queryset = OrderDetail.objects.filter(order__status__iexact='Completed')
 
-        # Thêm phần lọc theo khoảng thời gian (date ranges) nếu có truyền lên
+        # Thêm phần lọc theo khoảng thời gian (period hoặc date ranges) nếu có truyền lên
+        if period:
+            range_start = _period_range_start(period, timezone.localdate())
+            queryset = queryset.filter(order__order_date__date__gte=range_start)
         if start_date:
-            queryset = queryset.filter(order_date__gte=start_date)
+            queryset = queryset.filter(order__order_date__gte=start_date)
         if end_date:
-            queryset = queryset.filter(order_date__lte=end_date)
+            queryset = queryset.filter(order__order_date__lte=end_date)
         # Gom nhóm tổng số lượng bán ra của từng sản phẩm từ OrderDetail
-        product_sales = OrderDetail.objects.values(
-            'product__product_id', 
-            'product__product_name', 
+        product_sales = queryset.values(
+            'product__product_id',
+            'product__product_name',
             'product__barcode'
         ).annotate(
             total_sold=Sum('quantity')

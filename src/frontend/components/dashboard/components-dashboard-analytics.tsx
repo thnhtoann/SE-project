@@ -53,7 +53,7 @@ const ComponentsDashboardAnalytics = () => {
     const [period, setPeriod] = useState<ReportPeriod>('month');
 
     const { data: trend } = useApi<RevenueTrendResponse>(`/reports/revenue-trend/?period=${period}`);
-    const { data: salesPerformance } = useApi<{ best_sellers: TopProductRow[] }>('/reports/sales-performance/?limit=5');
+    const { data: salesPerformance } = useApi<{ best_sellers: TopProductRow[] }>(`/reports/sales-performance/?limit=5&period=${period}`);
     const { data: orders } = useApi<OrderRecord[]>('/orders/');
     const { data: products } = useApi<ProductApiRecord[]>('/products/');
     const { data: categories } = useApi<CategoryRecord[]>('/categories/');
