@@ -2,7 +2,8 @@
 
 import { Dialog, DialogPanel, Tab, Transition, TransitionChild } from '@headlessui/react';
 import { forwardRef, Fragment, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { IRootState } from '@/store';
 import IconX from '@/components/icon/icon-x';
 import IconCashBanknotes from '@/components/icon/icon-cash-banknotes';
 import IconCreditCard from '@/components/icon/icon-credit-card';
@@ -11,6 +12,7 @@ import IconPrinter from '@/components/icon/icon-printer';
 import { CartLineItem, PaymentMethod } from '@/components/apps/pos/pos-data';
 import { checkoutThunk, clearCart, CheckoutResult } from '@/store/posSlice';
 import { showPosToast } from '@/components/apps/pos/pos-toast';
+import { printReceipt } from '@/components/apps/pos/print-receipt';
 import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import { apiFetch, ApiError } from '@/lib/api-client';
@@ -49,6 +51,7 @@ const QUICK_AMOUNTS = [50000, 100000, 200000, 500000, 1000000];
 const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart, total, discountPercent, autoPrintInvoice, storeId, shiftId, onClose }, ref) => {
     const { t } = getTranslation();
     const dispatch = useDispatch<any>();
+    const cashierName = useSelector((state: IRootState) => state.session.username);
     const [tab, setTab] = useState<PaymentMethod>('Cash');
     const [phase, setPhase] = useState<Phase>('idle');
     const [tendered, setTendered] = useState(0);
@@ -122,15 +125,17 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
                         if (cancelled || poll.status !== 'Paid' || !poll.order) return;
                         if (pollTimer) clearInterval(pollTimer);
 
-                        setReceipt({
+                        const finishedReceipt: ReceiptSnapshot = {
                             orderId: poll.order.order_id,
                             timestamp: poll.order.order_date,
                             lineItems: cart,
                             total: Number(poll.order.total_amount),
                             paymentMethod: 'Bank QR',
-                        });
+                        };
+                        setReceipt(finishedReceipt);
                         dispatch(clearCart());
                         if (autoPrintInvoice) {
+                            printReceipt({ ...finishedReceipt, storeId, cashierName: cashierName ?? '' });
                             showPosToast(t('receipt_printed'), 'success');
                             setReceiptPrinted(true);
                         }
@@ -173,13 +178,14 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
             // 1. Payment confirmed -> order created + inventory deducted, atomically, on the
             //    backend (POST /api/orders/checkout/ — core/checkout.py::create_pos_order).
             const order = await dispatch(checkoutThunk({ storeId, shiftId, paymentMethod, discountPercent, items: cart })).unwrap();
-            setReceipt({
+            const finishedReceipt: ReceiptSnapshot = {
                 orderId: order.order_id,
                 timestamp: order.order_date,
                 lineItems: cart,
                 total: Number(order.total_amount),
                 paymentMethod,
-            });
+            };
+            setReceipt(finishedReceipt);
 
             // 2. Cash drawer opens ONLY now — never before this point, and never for a QR sale.
             if (paymentMethod === 'Cash') {
@@ -189,6 +195,7 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
             // 3. Receipt: automatic if the F10 toggle is on, otherwise the cashier prints manually
             //    from the completed panel (both paths satisfy FR-010, one is just cashier-gated).
             if (autoPrintInvoice) {
+                printReceipt({ ...finishedReceipt, storeId, cashierName: cashierName ?? '' });
                 showPosToast(t('receipt_printed'), 'success');
                 setReceiptPrinted(true);
             }
@@ -236,6 +243,8 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
     }));
 
     const handlePrintReceipt = () => {
+        if (!receipt) return;
+        printReceipt({ ...receipt, storeId, cashierName: cashierName ?? '' });
         showPosToast(t('receipt_printed'), 'success');
         setReceiptPrinted(true);
     };
