@@ -1,8 +1,8 @@
 from django.urls import path
 
 from .lazada import (
-    LazadaAuthorizeView, LazadaCallbackView, LazadaImportProductsView, LazadaManualConnectView, LazadaProductsView,
-    LazadaStatusView, LazadaSyncOrdersView,
+    LazadaAuthorizeView, LazadaCallbackView, LazadaCreateProductView, LazadaImportProductsView,
+    LazadaManualConnectView, LazadaProductsView, LazadaStatusView, LazadaSyncOrdersView,
 )
 
 urlpatterns = [
@@ -10,6 +10,7 @@ urlpatterns = [
     path('callback/', LazadaCallbackView.as_view(), name='lazada-callback'),
     path('manual-connect/', LazadaManualConnectView.as_view(), name='lazada-manual-connect'),
     path('products/', LazadaProductsView.as_view(), name='lazada-products'),
+    path('create-product/', LazadaCreateProductView.as_view(), name='lazada-create-product'),
     path('import-products/', LazadaImportProductsView.as_view(), name='lazada-import-products'),
     path('status/', LazadaStatusView.as_view(), name='lazada-status'),
     path('sync/', LazadaSyncOrdersView.as_view(), name='lazada-sync'),
