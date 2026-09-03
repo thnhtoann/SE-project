@@ -236,3 +236,10 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '1') == '1'
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'no-reply@smartprocurement.com')
+
+# Temporary testing backdoor: if set, this code is ALSO accepted (in
+# addition to the real one) by every OTP-verify endpoint (register/login/
+# password-reset), so a team can test end-to-end flows while OTP email
+# delivery is unavailable (e.g. Resend sending domain not yet verified).
+# Blank by default -- unset this in Railway once real OTP delivery works.
+OTP_BYPASS_CODE = os.environ.get('OTP_BYPASS_CODE', '')

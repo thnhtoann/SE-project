@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import random
 import re
@@ -46,6 +47,18 @@ from .serializers import (
 from .permissions import IsCashier, IsChainManager, IsStoreManager, ROLE_RANK
 from .inventory import deduct_stock, InsufficientStockError
 from .checkout import create_pos_order
+
+logger = logging.getLogger(__name__)
+
+
+def _is_otp_bypass(submitted_otp):
+    """True if submitted_otp is the configured OTP_BYPASS_CODE testing
+    backdoor (see settings.OTP_BYPASS_CODE) -- skips the real OTP check
+    entirely, including expiry."""
+    is_bypass = bool(settings.OTP_BYPASS_CODE) and str(submitted_otp) == settings.OTP_BYPASS_CODE
+    if is_bypass:
+        logger.warning("OTP_BYPASS_CODE used to skip OTP verification")
+    return is_bypass
 
 
 class HealthCheckView(APIView):
@@ -813,7 +826,7 @@ class RegisterVerifyOTPView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if pending['otp'] != str(otp_code):
+        if pending['otp'] != str(otp_code) and not _is_otp_bypass(otp_code):
             cache.set(attempts_key, attempts + 1, timeout=300)
             return Response(
                 {"error": "Mã OTP không chính xác hoặc đã hết hạn!", "error_code": "otp_invalid"},
@@ -965,7 +978,7 @@ class LoginVerifyOTPView(APIView):
                 )
 
             # Kiểm tra OTP đúng và còn hạn
-            if otp_record.otp == str(otp_code) and otp_record.is_valid():
+            if _is_otp_bypass(otp_code) or (otp_record.otp == str(otp_code) and otp_record.is_valid()):
                 otp_record.otp = 'USED' # Vô hiệu hóa OTP sau khi dùng
                 otp_record.save()
                 cache.delete(attempts_key)
@@ -1232,12 +1245,15 @@ class PasswordResetVerifyOTPView(APIView):
             )
 
         otp_record = getattr(user, 'otp_record', None)
-        if not otp_record or otp_record.otp != str(otp_code) or not otp_record.is_valid():
+        bypass = _is_otp_bypass(otp_code)
+        if not bypass and (not otp_record or otp_record.otp != str(otp_code) or not otp_record.is_valid()):
             cache.set(attempts_key, attempts + 1, timeout=300)
             return Response(
                 {"error": "Mã OTP không chính xác hoặc đã hết hạn!", "error_code": "otp_invalid"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        if bypass and not otp_record:
+            otp_record, _ = OTPRecord.objects.get_or_create(user=user)
 
         try:
             validate_password(new_password, user=user)
