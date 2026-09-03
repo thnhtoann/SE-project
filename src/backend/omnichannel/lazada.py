@@ -628,16 +628,25 @@ def _upload_image_to_lazada(access_token: str, image_url: str) -> str:
     /image/upload, returning the Lazada-hosted image URL that
     Skus.Images must reference (Lazada doesn't accept arbitrary external
     image URLs in /product/create). Raises on any failure -- caller decides
-    whether a missing image should block product creation."""
+    whether a missing image should block product creation.
+
+    The file part is sent as (filename, content, content_type), not raw
+    bytes -- a bare-bytes value produces a multipart part with no filename,
+    which this API seems to reject (observed: "E302: Not supported URL",
+    inconsistently -- worked for one image, failed the same way for two
+    others with no other difference in the request)."""
     image_response = requests.get(image_url, timeout=10)
     image_response.raise_for_status()
 
+    content_type = image_response.headers.get('Content-Type', 'image/jpeg').split(';')[0].strip()
+    ext = content_type.split('/')[-1] or 'jpg'
+
     req = LazopRequest('/image/upload')
-    req.add_file_param('image', image_response.content)
+    req.add_file_param('image', (f'product.{ext}', image_response.content, content_type))
     response = _api_client().execute(req, access_token)
     body = response.body or {}
     if response.code and response.code != '0':
-        raise ValueError(f"{response.code}: {response.message}")
+        raise ValueError(f"{response.code}: {response.message} | raw={body}")
     return body['data']['image']['url']
 
 
