@@ -34,10 +34,12 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
 import requests
+from PIL import Image
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Sum
@@ -631,18 +633,26 @@ def _upload_image_to_lazada(access_token: str, image_url: str) -> str:
     whether a missing image should block product creation.
 
     The file part is sent as (filename, content, content_type), not raw
-    bytes -- a bare-bytes value produces a multipart part with no filename,
-    which this API seems to reject (observed: "E302: Not supported URL",
-    inconsistently -- worked for one image, failed the same way for two
-    others with no other difference in the request)."""
+    bytes -- a bare-bytes value produces a multipart part with no filename.
+    Also converts to JPEG when the source isn't JPEG/PNG -- confirmed via
+    the API's own error detail (UNSUPPORTED_IMAGE_FORMAT) that it rejects
+    WEBP, which several of this catalog's product images are served as."""
     image_response = requests.get(image_url, timeout=10)
     image_response.raise_for_status()
 
     content_type = image_response.headers.get('Content-Type', 'image/jpeg').split(';')[0].strip()
-    ext = content_type.split('/')[-1] or 'jpg'
+    content = image_response.content
 
+    if content_type not in ('image/jpeg', 'image/png'):
+        image = Image.open(BytesIO(content)).convert('RGB')
+        buffer = BytesIO()
+        image.save(buffer, format='JPEG', quality=90)
+        content = buffer.getvalue()
+        content_type = 'image/jpeg'
+
+    ext = content_type.split('/')[-1]
     req = LazopRequest('/image/upload')
-    req.add_file_param('image', (f'product.{ext}', image_response.content, content_type))
+    req.add_file_param('image', (f'product.{ext}', content, content_type))
     response = _api_client().execute(req, access_token)
     body = response.body or {}
     if response.code and response.code != '0':
