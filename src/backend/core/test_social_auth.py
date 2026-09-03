@@ -6,7 +6,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from core.models import Role, Staff
+from core.models import Role, Staff, Store
 
 
 @override_settings(GOOGLE_OAUTH_CLIENT_ID='test-client-id')
@@ -56,6 +56,9 @@ class GoogleLoginTests(APITestCase):
 
     @patch('core.views.requests.get')
     def test_new_email_creates_chain_manager(self, mock_get):
+        main_store = Store.objects.create(store_name='Main Branch', location='HCMC')
+        Store.objects.create(store_name='Second Branch', location='HN')  # higher store_id, must NOT be picked
+
         def fake_get(url, params=None, headers=None, timeout=None):
             if 'tokeninfo' in url:
                 return self._mock_response(200, {'aud': 'test-client-id'})
@@ -71,6 +74,7 @@ class GoogleLoginTests(APITestCase):
         self.assertEqual(staff.role.role_name, 'Chain Manager')
         self.assertFalse(staff.has_usable_password())
         self.assertEqual(res.data['username'], staff.username)
+        self.assertEqual(staff.store, main_store)
 
     @patch('core.views.requests.get')
     def test_existing_email_reuses_staff(self, mock_get):
@@ -160,6 +164,8 @@ class FacebookLoginTests(APITestCase):
 
     @patch('core.views.requests.get')
     def test_new_email_creates_chain_manager(self, mock_get):
+        main_store = Store.objects.create(store_name='Main Branch', location='HCMC')
+
         def fake_get(url, params=None, timeout=None):
             if 'debug_token' in url:
                 return self._mock_response({'data': {'is_valid': True, 'app_id': 'test-app-id'}})
@@ -173,3 +179,4 @@ class FacebookLoginTests(APITestCase):
         staff = Staff.objects.get(email='fb.person@example.com')
         self.assertEqual(staff.role.role_name, 'Chain Manager')
         self.assertFalse(staff.has_usable_password())
+        self.assertEqual(staff.store, main_store)

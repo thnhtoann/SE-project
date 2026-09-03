@@ -13,13 +13,18 @@ import IconStar from '@/components/icon/icon-star';
 import IconTrashLines from '@/components/icon/icon-trash-lines';
 import IconTwitter from '@/components/icon/icon-twitter';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
 import { getTranslation } from '@/i18n';
 import { IRootState } from '@/store';
-import { StaffCertificateRecord, StaffDocumentRecord, StaffPerformanceStatus, StaffRecord, StaffReviewRecord } from '@/types/admin';
+import { StaffCertificateRecord, StaffDocumentRecord, StaffPerformanceStatus, StaffRecord, StaffReviewRecord, StoreRecord } from '@/types/admin';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import React, { ChangeEvent, FormEvent, useState } from 'react';
 import { useSelector } from 'react-redux';
+
+// Mirrors core/permissions.py::ROLE_RANK — who can transfer whose branch is
+// decided by comparing these, not by hardcoding role-name pairs here too.
+const ROLE_RANK: Record<string, number> = { Cashier: 1, 'Store Manager': 2, 'Chain Manager': 3, Admin: 3 };
 
 const performanceBadgeClass: Record<StaffPerformanceStatus, string> = {
     Excellent: 'bg-success-light text-success dark:bg-success dark:text-success-light',
@@ -44,7 +49,21 @@ const ComponentsStaffDetails = ({ staff, onStaffUpdated }: Props) => {
     const { t } = getTranslation();
     const router = useRouter();
     const role = useSelector((state: IRootState) => state.session.role);
+    const sessionStaffId = useSelector((state: IRootState) => state.session.staffId);
     const canManage = role === 'Chain Manager' || role === 'Admin';
+
+    // A Chain Manager can transfer anyone (including themselves); anyone
+    // else can only transfer a strictly-lower-ranked staff member — never a
+    // peer, and never themselves (mirrors StaffViewSet.transfer_store).
+    const viewerRank = ROLE_RANK[role ?? ''] ?? 0;
+    const targetRank = ROLE_RANK[staff.role_name] ?? 0;
+    const isSelf = staff.staff_id === sessionStaffId;
+    const canTransferBranch = viewerRank >= ROLE_RANK['Chain Manager'] || (viewerRank > targetRank && !isSelf);
+
+    const { data: storesData } = useApi<StoreRecord[]>(canTransferBranch ? '/stores/' : null);
+    const stores = storesData ?? [];
+    const [transferStoreId, setTransferStoreId] = useState(staff.store ? String(staff.store) : '');
+    const [transferring, setTransferring] = useState(false);
 
     const [deleting, setDeleting] = useState(false);
     const [actionError, setActionError] = useState('');
@@ -62,6 +81,22 @@ const ComponentsStaffDetails = ({ staff, onStaffUpdated }: Props) => {
             onStaffUpdated(updated);
         } catch (err) {
             setActionError(err instanceof ApiError ? String((err.body as { detail?: string })?.detail ?? err.message) : t('error_saving_staff'));
+        }
+    };
+
+    const transferBranch = async () => {
+        setTransferring(true);
+        setActionError('');
+        try {
+            const updated = await apiFetch<StaffRecord>(`/staff/${staff.staff_id}/transfer-store/`, {
+                method: 'PATCH',
+                body: { store: transferStoreId || null },
+            });
+            onStaffUpdated(updated);
+        } catch (err) {
+            setActionError(err instanceof ApiError ? String((err.body as { detail?: string })?.detail ?? err.message) : t('error_saving_staff'));
+        } finally {
+            setTransferring(false);
         }
     };
 
@@ -223,6 +258,29 @@ const ComponentsStaffDetails = ({ staff, onStaffUpdated }: Props) => {
                                         </li>
                                     )}
                                 </ul>
+                            )}
+                            {canTransferBranch && (
+                                <div className="mt-7 border-t border-[#ebedf2] pt-5 dark:border-[#1b2e4b]">
+                                    <label htmlFor="transferStore">{t('branch')}</label>
+                                    <div className="mt-1 flex gap-2">
+                                        <select id="transferStore" className="form-select" value={transferStoreId} onChange={(e: ChangeEvent<HTMLSelectElement>) => setTransferStoreId(e.target.value)}>
+                                            <option value="">{t('no_branch_assigned')}</option>
+                                            {stores.map((s) => (
+                                                <option key={s.store_id} value={s.store_id}>
+                                                    {s.store_name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary shrink-0"
+                                            disabled={transferring || transferStoreId === (staff.store ? String(staff.store) : '')}
+                                            onClick={transferBranch}
+                                        >
+                                            {t('save')}
+                                        </button>
+                                    </div>
+                                </div>
                             )}
                             {canManage && (
                                 <div className="mt-7 flex items-center justify-center gap-3">

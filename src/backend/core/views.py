@@ -17,7 +17,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -42,7 +42,7 @@ from .serializers import (
     CustomerSerializer, DiscountSerializer, BusinessProfileSerializer,
     PaymentMethodSettingSerializer, MarketplaceChannelSettingSerializer,
 )
-from .permissions import IsCashier, IsChainManager, IsStoreManager
+from .permissions import IsCashier, IsChainManager, IsStoreManager, ROLE_RANK
 from .inventory import deduct_stock, InsufficientStockError
 from .checkout import create_pos_order
 
@@ -138,11 +138,42 @@ class StaffViewSet(viewsets.ModelViewSet):
     serializer_class = StaffSerializer
 
     def get_permissions(self):
-        # Store Manager can view (their own store's) staff; only Chain
-        # Manager/Admin can create/edit/delete staff records.
-        if self.request.method in SAFE_METHODS:
+        # Store Manager can view (their own store's) staff and transfer
+        # lower-ranked staff between branches (see transfer_store below, which
+        # does its own role-rank check); only Chain Manager/Admin can
+        # otherwise create/edit/delete staff records.
+        if self.request.method in SAFE_METHODS or self.action == 'transfer_store':
             return [(IsStoreManager | IsChainManager)()]
         return [IsChainManager()]
+
+    @action(detail=True, methods=['patch'], url_path='transfer-store')
+    def transfer_store(self, request, pk=None):
+        """ Chuyển chi nhánh (store) cho 1 nhân viên. Chain Manager/Admin có
+        thể chuyển cho bất kỳ ai, kể cả chính mình; Store Manager chỉ được
+        chuyển cho nhân viên có role thấp hơn mình (không tự chuyển, không
+        chuyển ngang hàng) trong phạm vi cửa hàng mình quản lý (đã bị
+        get_queryset ở trên giới hạn sẵn). """
+        staff = self.get_object()
+        actor = request.user
+        actor_rank = ROLE_RANK.get(actor.role.role_name if actor.role else None, 0)
+        target_rank = ROLE_RANK.get(staff.role.role_name if staff.role else None, 0)
+        is_self = staff.pk == actor.pk
+        is_chain_manager = actor_rank >= ROLE_RANK['Chain Manager']
+
+        if not (is_chain_manager or (actor_rank > target_rank and not is_self)):
+            raise PermissionDenied("You do not have permission to transfer this staff member's branch.")
+
+        store_id = request.data.get('store')
+        store = None
+        if store_id not in (None, ''):
+            try:
+                store = Store.objects.get(pk=store_id)
+            except Store.DoesNotExist:
+                raise ValidationError({"store": ["Store not found."]})
+
+        staff.store = store
+        staff.save(update_fields=['store'])
+        return Response(StaffSerializer(staff).data)
 
     def get_queryset(self):
         # select_related/prefetch_related avoid an N+1 per row: without them,
@@ -682,6 +713,14 @@ def _hash_device_token(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _default_store():
+    """ Chi nhánh chính (mặc định) gán cho tài khoản tự đăng ký -- luôn là
+    chi nhánh có store_id nhỏ nhất, vì Store hiện chưa có cờ "is_main" riêng.
+    Trả về None nếu hệ thống chưa có chi nhánh nào (staff.store để trống,
+    một Chain Manager/Store Manager gán tay sau qua transfer-store). """
+    return Store.objects.order_by('store_id').first()
+
+
 def _issue_tokens(user, remember_me):
     refresh = RefreshToken.for_user(user)
     if remember_me:
@@ -788,6 +827,7 @@ class RegisterVerifyOTPView(APIView):
                 full_name=pending['full_name'],
                 email=pending['email'],
                 role=role,
+                store=_default_store(),
                 is_active=True,
             )
         except IntegrityError:
@@ -974,6 +1014,7 @@ def _get_or_create_social_staff(email, full_name):
         full_name=full_name or username,
         email=email,
         role=role,
+        store=_default_store(),
         is_active=True,
     )
     staff.set_unusable_password()
