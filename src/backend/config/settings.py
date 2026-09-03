@@ -211,6 +211,25 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=4),
 }
+
+# Without this, Django's logging defaults to WARNING-and-up with no
+# configured handler -- any logger.info(...) call anywhere in the app
+# (e.g. omnichannel.lazada's per-push logging) is silently dropped instead
+# of reaching Railway's log stream. Root logger -> console (stdout), so
+# `docker compose logs` / Railway deploy logs pick it up.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+}
 # OTP emails (register/login/password-reset — see core/views.py send_mail
 # calls). Three tiers, picked automatically by which vars are set:
 #   1. RESEND_API_KEY set -> core.email_backend.ResendEmailBackend (HTTPS
