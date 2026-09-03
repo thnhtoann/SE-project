@@ -1,12 +1,9 @@
 'use client';
 import IconFacebookCircle from '@/components/icon/icon-facebook-circle';
 import IconGoogle from '@/components/icon/icon-google';
-import IconInstagram from '@/components/icon/icon-instagram';
-import IconTwitter from '@/components/icon/icon-twitter';
 import { getTranslation } from '@/i18n';
 import { requestFacebookAccessToken, requestGoogleAccessToken } from '@/lib/social-auth-sdk';
 import { loginWithFacebook, loginWithGoogle } from '@/store/sessionSlice';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useState } from 'react';
 import { useDispatch } from 'react-redux';
@@ -84,19 +81,9 @@ const SocialLoginSection = () => {
         <div className="mb-10 md:mb-[60px]">
             <ul className="flex justify-center gap-3.5 text-white">
                 <li>
-                    <Link href="#" className={gradientButtonClass} style={gradientStyle}>
-                        <IconInstagram />
-                    </Link>
-                </li>
-                <li>
                     <button type="button" aria-label={t('sign_in_with_facebook')} disabled={pending !== null} onClick={handleFacebook} className={gradientButtonClass} style={gradientStyle}>
                         <IconFacebookCircle />
                     </button>
-                </li>
-                <li>
-                    <Link href="#" className={gradientButtonClass} style={gradientStyle}>
-                        <IconTwitter fill={true} />
-                    </Link>
                 </li>
                 <li>
                     <button type="button" aria-label={t('sign_in_with_google')} disabled={pending !== null} onClick={handleGoogle} className={gradientButtonClass} style={gradientStyle}>
