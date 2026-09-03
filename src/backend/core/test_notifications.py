@@ -30,6 +30,15 @@ class NotificationApiTests(APITestCase):
         self.own_note.refresh_from_db()
         self.assertTrue(self.own_note.is_read)
 
+    def test_read_notification_disappears_from_list(self):
+        # Regression: get_queryset() used to return every notification
+        # regardless of is_read, so marking one read (and refreshing the
+        # page, i.e. re-fetching the list) made it reappear.
+        self.client.patch(reverse('notification-mark-read', kwargs={'pk': self.own_note.pk}))
+        res = self.client.get(reverse('notification-list'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 0)
+
     def test_cannot_mark_someone_elses_notification_read(self):
         other_note = Notification.objects.get(recipient=self.other_staff)
         res = self.client.patch(reverse('notification-mark-read', kwargs={'pk': other_note.pk}))
