@@ -1,7 +1,7 @@
 'use client';
 
 import { Dialog, DialogPanel, Tab, Transition, TransitionChild } from '@headlessui/react';
-import { forwardRef, Fragment, useEffect, useImperativeHandle, useState } from 'react';
+import { forwardRef, Fragment, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import IconX from '@/components/icon/icon-x';
 import IconCashBanknotes from '@/components/icon/icon-cash-banknotes';
@@ -9,10 +9,13 @@ import IconCreditCard from '@/components/icon/icon-credit-card';
 import IconCircleCheck from '@/components/icon/icon-circle-check';
 import IconPrinter from '@/components/icon/icon-printer';
 import { CartLineItem, PaymentMethod } from '@/components/apps/pos/pos-data';
-import { checkoutThunk } from '@/store/posSlice';
+import { checkoutThunk, clearCart, CheckoutResult } from '@/store/posSlice';
 import { showPosToast } from '@/components/apps/pos/pos-toast';
 import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
+import { apiFetch, ApiError } from '@/lib/api-client';
+
+const QR_POLL_INTERVAL_MS = 3000;
 
 type Phase = 'idle' | 'processing' | 'completed' | 'rejected';
 
@@ -54,6 +57,15 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
     const [receiptPrinted, setReceiptPrinted] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
 
+    // PayOS VietQR flow state — a real payment link the customer scans and
+    // pays for real; the Order itself is only created server-side once
+    // PayOSWebhookView confirms payment (see pos/views.py), so there's
+    // nothing to "simulate" here anymore.
+    const [qrCheckoutUrl, setQrCheckoutUrl] = useState('');
+    const [qrError, setQrError] = useState('');
+    const [qrRetryToken, setQrRetryToken] = useState(0);
+    const qrOrderCodeRef = useRef<number | null>(null);
+
     // Fresh state every time the modal opens — a half-typed tender amount from a previous
     // sale must not leak into the next one.
     useEffect(() => {
@@ -65,8 +77,82 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
             setReceipt(null);
             setReceiptPrinted(false);
             setRejectReason('');
+            setQrCheckoutUrl('');
+            setQrError('');
+            qrOrderCodeRef.current = null;
         }
     }, [open]);
+
+    // Creates a PayOS payment link as soon as the cashier switches to the Bank
+    // QR tab, then polls for the webhook-confirmed result. Cleans up (cancels
+    // the intent server-side) if the cashier switches tabs/closes the modal
+    // before the customer pays.
+    useEffect(() => {
+        if (!open || tab !== 'Bank QR' || phase === 'completed' || cart.length === 0) return;
+
+        let cancelled = false;
+        let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+        const start = async () => {
+            setQrError('');
+            setQrCheckoutUrl('');
+            try {
+                const created = await apiFetch<{ order_code: number; checkout_url: string; amount: number; status: string }>('/pos/qr-payments/', {
+                    method: 'POST',
+                    body: {
+                        store: storeId,
+                        shift: shiftId,
+                        discount_percent: discountPercent,
+                        items: cart.map((li) => ({ product: li.productId, quantity: li.quantity, unit_price: li.unitPrice.toFixed(2) })),
+                    },
+                });
+                if (cancelled) return;
+                qrOrderCodeRef.current = created.order_code;
+                setQrCheckoutUrl(created.checkout_url);
+
+                pollTimer = setInterval(async () => {
+                    try {
+                        const poll = await apiFetch<{ status: string; order: CheckoutResult | null }>(`/pos/qr-payments/${created.order_code}/`);
+                        if (cancelled || poll.status !== 'Paid' || !poll.order) return;
+                        if (pollTimer) clearInterval(pollTimer);
+
+                        setReceipt({
+                            orderId: poll.order.order_id,
+                            timestamp: poll.order.order_date,
+                            lineItems: cart,
+                            total: Number(poll.order.total_amount),
+                            paymentMethod: 'Bank QR',
+                        });
+                        dispatch(clearCart());
+                        if (autoPrintInvoice) {
+                            showPosToast(t('receipt_printed'), 'success');
+                            setReceiptPrinted(true);
+                        }
+                        setPhase('completed');
+                    } catch {
+                        // Transient poll failure — the next tick tries again.
+                    }
+                }, QR_POLL_INTERVAL_MS);
+            } catch (err) {
+                if (cancelled) return;
+                const message = err instanceof ApiError && err.body && typeof err.body === 'object' ? (err.body as { detail?: string }).detail : undefined;
+                setQrError(message || t('error_payos_unavailable'));
+            }
+        };
+
+        void start();
+
+        return () => {
+            cancelled = true;
+            if (pollTimer) clearInterval(pollTimer);
+            const orderCode = qrOrderCodeRef.current;
+            if (orderCode) {
+                void apiFetch(`/pos/qr-payments/${orderCode}/`, { method: 'POST' }).catch(() => {});
+                qrOrderCodeRef.current = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- cart/store/shift/discount are fixed for the lifetime of a single checkout attempt
+    }, [open, tab, phase, qrRetryToken]);
 
     const changeDue = Number((tendered - total).toFixed(2));
 
@@ -113,22 +199,15 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
     };
 
     const handleAttemptComplete = () => {
-        if (cart.length === 0 || phase === 'processing' || phase === 'completed') return; // FR-007 guard
-        if (tab === 'Cash') {
-            if (tendered < total) {
-                setShortAmount(true);
-                return;
-            }
-            setShortAmount(false);
-            void runCompletionSequence('Cash');
-        } else {
-            void handleSimulateConfirm();
+        // Bank QR has no manual "complete" step anymore — it finishes itself
+        // once the PayOS webhook confirms payment (see the polling effect above).
+        if (cart.length === 0 || phase === 'processing' || phase === 'completed' || tab !== 'Cash') return; // FR-007 guard
+        if (tendered < total) {
+            setShortAmount(true);
+            return;
         }
-    };
-
-    const handleSimulateConfirm = async () => {
-        if (phase === 'processing' || phase === 'completed') return; // FR-007 guard
-        await runCompletionSequence('Bank QR');
+        setShortAmount(false);
+        void runCompletionSequence('Cash');
     };
 
     const handleSwitchTab = () => {
@@ -306,26 +385,30 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
                                                 </div>
                                             ) : (
                                                 <div className="flex flex-col items-center">
-                                                    {/* Fake QR placeholder — no real payment webhook exists in this build. */}
-                                                    <div className="grid h-40 w-40 grid-cols-8 grid-rows-8 gap-0.5 rounded-md border border-white-light bg-white p-2 dark:border-[#1b2e4b]">
-                                                        {Array.from({ length: 64 }).map((_, i) => {
-                                                            const row = Math.floor(i / 8);
-                                                            const col = i % 8;
-                                                            // Deterministic pseudo-random-looking pattern (checkerboard perturbed by the
-                                                            // order total) — just a visual stand-in, not a real encoded QR code.
-                                                            const on = (row * 3 + col * 5 + Math.round(total)) % 2 === 0;
-                                                            return <div key={i} className={on ? 'bg-black' : 'bg-transparent'} />;
-                                                        })}
-                                                    </div>
-                                                    <div className="mt-3 text-center text-sm text-white-dark">
-                                                        Scan to pay {currency(total)}
-                                                    </div>
+                                                    {qrError ? (
+                                                        <div className="flex w-full flex-col items-center gap-3 py-6">
+                                                            <div className="text-center text-sm text-danger">{qrError}</div>
+                                                            <button type="button" className="btn btn-outline-primary" onClick={() => setQrRetryToken((n) => n + 1)}>
+                                                                {t('try_again')}
+                                                            </button>
+                                                        </div>
+                                                    ) : qrCheckoutUrl ? (
+                                                        <>
+                                                            <iframe src={qrCheckoutUrl} title="PayOS checkout" className="h-80 w-full rounded-md border border-white-light dark:border-[#1b2e4b]" />
+                                                            <div className="mt-3 flex items-center gap-2 text-sm text-white-dark">
+                                                                <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                                                                {t('waiting_for_payment')}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="flex w-full flex-col items-center gap-3 py-10">
+                                                            <span className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                                            <div className="text-sm text-white-dark">{t('creating_qr_code')}</div>
+                                                        </div>
+                                                    )}
 
-                                                    {phase === 'rejected' && <div className="mt-3 text-sm text-danger">{rejectReason || t('payment_rejected')}</div>}
-
-                                                    <div className="mt-2 text-center text-xs text-white-dark">Demo stand-in — no real payment webhook in this build</div>
-                                                    <button type="button" className="btn btn-primary mt-4 w-full" disabled={phase === 'processing'} onClick={() => void handleSimulateConfirm()}>
-                                                        {t('simulate_bank_confirmation')} (F9)
+                                                    <button type="button" className="btn btn-outline-danger mt-4 w-full" onClick={handleSwitchTab}>
+                                                        {t('cancel')}
                                                     </button>
                                                 </div>
                                             )}

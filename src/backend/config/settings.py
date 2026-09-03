@@ -52,6 +52,16 @@ GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
 FACEBOOK_APP_ID = os.environ.get('FACEBOOK_APP_ID', '')
 FACEBOOK_APP_SECRET = os.environ.get('FACEBOOK_APP_SECRET', '')
 
+# PayOS (VietQR payment gateway, https://payos.vn) -- powers the real Bank QR
+# checkout in the POS module (see pos/payos_client.py, pos/views.py). Get
+# credentials from a PayOS merchant account: Payment channels > <channel> >
+# API keys. PAYOS_CHECKSUM_KEY signs outgoing payment-link requests and
+# verifies incoming webhook payloads -- never expose it to the frontend.
+PAYOS_CLIENT_ID = os.environ.get('PAYOS_CLIENT_ID', '')
+PAYOS_API_KEY = os.environ.get('PAYOS_API_KEY', '')
+PAYOS_CHECKSUM_KEY = os.environ.get('PAYOS_CHECKSUM_KEY', '')
+PAYOS_API_URL = os.environ.get('PAYOS_API_URL', 'https://api-merchant.payos.vn')
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
