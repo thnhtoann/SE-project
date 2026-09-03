@@ -11,6 +11,7 @@ from .models import (
     Category, Product, Batch, StoreInventory, Order, OrderDetail, InventoryAlert,
     StaffReview, StaffDocument, StaffCertificate, Shift,
     Customer, Discount, BusinessProfile, PaymentMethodSetting, MarketplaceChannelSetting,
+    Notification,
 )
 
 # Performance thresholds for StaffSerializer.get_performance_status — a
@@ -409,3 +410,10 @@ class MarketplaceChannelSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketplaceChannelSetting
         fields = '__all__'
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'notification_type', 'message', 'order', 'is_read', 'created_at']
+        read_only_fields = fields

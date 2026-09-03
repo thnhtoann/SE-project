@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
-from core.models import Batch, Category, Order, Product, Role, Shift, Staff, Store, StoreInventory
+from core.models import Batch, Category, Notification, Order, Product, Role, Shift, Staff, Store, StoreInventory
 
 from .models import QrPaymentIntent
 from .payos_client import PayOSError
@@ -186,6 +186,39 @@ class PayOSWebhookTests(QrPaymentTestBase):
 
         self.inventory.refresh_from_db()
         self.assertEqual(self.inventory.quantity, 8)
+
+    @patch('pos.views.payos_client.verify_webhook_signature', return_value=True)
+    def test_notifies_cashier_own_store_manager_and_all_chain_managers_only(self, mock_verify):
+        store_manager = Staff.objects.create_user(
+            username='qr_store_mgr', password='password123', full_name='QR Store Mgr',
+            role=Role.objects.get_or_create(role_name='Store Manager')[0], store=self.store,
+        )
+        chain_manager = Staff.objects.create_user(
+            username='qr_chain_mgr', password='password123', full_name='QR Chain Mgr',
+            role=Role.objects.get_or_create(role_name='Chain Manager')[0],
+        )
+        other_store = Store.objects.create(store_name='Other Store', location='HN')
+        other_store_manager = Staff.objects.create_user(
+            username='other_store_mgr', password='password123', full_name='Other Store Mgr',
+            role=Role.objects.get_or_create(role_name='Store Manager')[0], store=other_store,
+        )
+        other_cashier = Staff.objects.create_user(
+            username='other_cashier', password='password123', full_name='Other Cashier',
+            role=Role.objects.get_or_create(role_name='Cashier')[0], store=other_store,
+        )
+
+        res = self.client.post(reverse('pos-payos-webhook'), self._payload(), format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        notified_ids = set(Notification.objects.values_list('recipient_id', flat=True))
+        self.assertEqual(notified_ids, {self.cashier.pk, store_manager.pk, chain_manager.pk})
+        self.assertNotIn(other_store_manager.pk, notified_ids)
+        self.assertNotIn(other_cashier.pk, notified_ids)
+
+        note = Notification.objects.get(recipient=chain_manager)
+        self.assertEqual(note.notification_type, Notification.TYPE_QR_PAYMENT_SUCCESS)
+        self.assertFalse(note.is_read)
+        self.assertEqual(note.order, Order.objects.get(external_order_id='555000'))
 
     @patch('pos.views.payos_client.verify_webhook_signature', return_value=True)
     def test_duplicate_webhook_call_does_not_create_second_order(self, mock_verify):

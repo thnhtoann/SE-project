@@ -31,9 +31,25 @@ import IconMenuDatatables from '@/components/icon/menu/icon-menu-datatables';
 import IconMenuForms from '@/components/icon/menu/icon-menu-forms';
 import IconMenuPages from '@/components/icon/menu/icon-menu-pages';
 import IconMenuMore from '@/components/icon/menu/icon-menu-more';
+import IconCreditCard from '@/components/icon/icon-credit-card';
 import { usePathname, useRouter } from 'next/navigation';
 import { getTranslation } from '@/i18n';
 import { logout } from '@/store/sessionSlice';
+import { useApi } from '@/lib/hooks/use-api';
+import { apiFetch } from '@/lib/api-client';
+import { NotificationRecord } from '@/types/admin';
+
+const NOTIFICATIONS_POLL_MS = 20000;
+
+const timeAgo = (iso: string): string => {
+    const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+};
 
 const Header = () => {
     const pathname = usePathname();
@@ -116,29 +132,19 @@ const Header = () => {
         setMessages(messages.filter((user) => user.id !== value));
     };
 
-    const [notifications, setNotifications] = useState([
-        {
-            id: 1,
-            profile: 'user-profile.jpeg',
-            message: '<strong class="text-sm mr-1">John Doe</strong>invite you to <strong>Prototyping</strong>',
-            time: '45 min ago',
-        },
-        {
-            id: 2,
-            profile: 'profile-34.jpeg',
-            message: '<strong class="text-sm mr-1">Adam Nolan</strong>mentioned you to <strong>UX Basics</strong>',
-            time: '9h Ago',
-        },
-        {
-            id: 3,
-            profile: 'profile-16.jpeg',
-            message: '<strong class="text-sm mr-1">Anna Morgan</strong>Upload a file',
-            time: '9h Ago',
-        },
-    ]);
+    const { data: notificationsData, mutate: mutateNotifications } = useApi<NotificationRecord[]>(session.isAuthenticated ? '/notifications/' : null, {
+        refreshInterval: NOTIFICATIONS_POLL_MS,
+    });
+    const notifications = notificationsData ?? [];
 
     const removeNotification = (value: number) => {
-        setNotifications(notifications.filter((user) => user.id !== value));
+        mutateNotifications(notifications.filter((n) => n.id !== value), { revalidate: false });
+        void apiFetch(`/notifications/${value}/mark-read/`, { method: 'PATCH' }).catch(() => {});
+    };
+
+    const markAllNotificationsRead = () => {
+        mutateNotifications([], { revalidate: false });
+        void apiFetch('/notifications/mark-all-read/', { method: 'POST' }).catch(() => {});
     };
 
     const [search, setSearch] = useState(false);
@@ -336,18 +342,20 @@ const Header = () => {
                                 button={
                                     <span>
                                         <IconBellBing />
-                                        <span className="absolute top-0 flex h-3 w-3 ltr:right-0 rtl:left-0">
-                                            <span className="absolute -top-[3px] inline-flex h-full w-full animate-ping rounded-full bg-success/50 opacity-75 ltr:-left-[3px] rtl:-right-[3px]"></span>
-                                            <span className="relative inline-flex h-[6px] w-[6px] rounded-full bg-success"></span>
-                                        </span>
+                                        {notifications.length > 0 && (
+                                            <span className="absolute top-0 flex h-3 w-3 ltr:right-0 rtl:left-0">
+                                                <span className="absolute -top-[3px] inline-flex h-full w-full animate-ping rounded-full bg-success/50 opacity-75 ltr:-left-[3px] rtl:-right-[3px]"></span>
+                                                <span className="relative inline-flex h-[6px] w-[6px] rounded-full bg-success"></span>
+                                            </span>
+                                        )}
                                     </span>
                                 }
                             >
                                 <ul className="w-[300px] divide-y !py-0 text-dark dark:divide-white/10 dark:text-white-dark sm:w-[350px]">
                                     <li onClick={(e) => e.stopPropagation()}>
                                         <div className="flex items-center justify-between px-4 py-2 font-semibold">
-                                            <h4 className="text-lg">Notification</h4>
-                                            {notifications.length ? <span className="badge bg-primary/80">{notifications.length}New</span> : ''}
+                                            <h4 className="text-lg">{t('notifications')}</h4>
+                                            {notifications.length ? <span className="badge bg-primary/80">{notifications.length} {t('new')}</span> : ''}
                                         </div>
                                     </li>
                                     {notifications.length > 0 ? (
@@ -356,20 +364,13 @@ const Header = () => {
                                                 return (
                                                     <li key={notification.id} className="dark:text-white-light/90" onClick={(e) => e.stopPropagation()}>
                                                         <div className="group flex items-center px-4 py-2">
-                                                            <div className="grid place-content-center rounded">
-                                                                <div className="relative h-12 w-12">
-                                                                    <img className="h-12 w-12 rounded-full object-cover" alt="profile" src={`/assets/images/${notification.profile}`} />
-                                                                    <span className="absolute bottom-0 right-[6px] block h-2 w-2 rounded-full bg-success"></span>
-                                                                </div>
+                                                            <div className="grid h-12 w-12 shrink-0 place-content-center rounded-full bg-primary-light text-primary dark:bg-primary dark:text-primary-light">
+                                                                <IconCreditCard className="h-5 w-5" />
                                                             </div>
                                                             <div className="flex flex-auto ltr:pl-3 rtl:pr-3">
                                                                 <div className="ltr:pr-3 rtl:pl-3">
-                                                                    <h6
-                                                                        dangerouslySetInnerHTML={{
-                                                                            __html: notification.message,
-                                                                        }}
-                                                                    ></h6>
-                                                                    <span className="block text-xs font-normal dark:text-gray-500">{notification.time}</span>
+                                                                    <h6>{notification.message}</h6>
+                                                                    <span className="block text-xs font-normal dark:text-gray-500">{timeAgo(notification.created_at)}</span>
                                                                 </div>
                                                                 <button
                                                                     type="button"
@@ -385,7 +386,9 @@ const Header = () => {
                                             })}
                                             <li>
                                                 <div className="p-4">
-                                                    <button className="btn btn-primary btn-small block w-full">Read All Notifications</button>
+                                                    <button type="button" className="btn btn-primary btn-small block w-full" onClick={markAllNotificationsRead}>
+                                                        {t('read_all_notifications')}
+                                                    </button>
                                                 </div>
                                             </li>
                                         </>

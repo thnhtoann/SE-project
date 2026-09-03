@@ -212,6 +212,8 @@
     "edit": "Sửa",
     "delete": "Xóa",
     "cancel": "Hủy",
+    "new": "Mới",
+    "read_all_notifications": "Đánh dấu đã đọc tất cả",
     "confirm_delete_product": "Bạn có chắc chắn muốn xóa sản phẩm này không?",
     "category": "Danh mục",
     "select_category": "Chọn danh mục",

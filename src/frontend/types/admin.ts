@@ -563,3 +563,16 @@ export interface MarketplaceChannelSettingRecord {
     connected: boolean;
     store_partner_id: string;
 }
+
+// Mirrors core.serializers.NotificationSerializer. Scoped server-side to the
+// logged-in staff member (GET /api/notifications/ only ever returns their
+// own) -- see core/views.py NotificationViewSet and pos/views.py
+// _notify_qr_payment_success for who gets notified about what.
+export interface NotificationRecord {
+    id: number;
+    notification_type: string;
+    message: string;
+    order: number | null;
+    is_read: boolean;
+    created_at: string;
+}

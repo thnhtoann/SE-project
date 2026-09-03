@@ -452,3 +452,24 @@ class MarketplaceChannelSetting(models.Model):
 
     def __str__(self):
         return self.channel
+
+# 23. Bảng NOTIFICATION -- một dòng riêng cho mỗi người nhận (không phải bảng
+# join has-read chung), vì mỗi người cần trạng thái đã-đọc độc lập. Người
+# tạo hiện tại là PayOSWebhookView (pos/views.py) khi 1 đơn QR thanh toán
+# thành công; type là string mở, không phải enum cứng, để thêm loại thông
+# báo khác sau này không cần đổi schema.
+class Notification(models.Model):
+    TYPE_QR_PAYMENT_SUCCESS = 'qr_payment_success'
+
+    recipient = models.ForeignKey(Staff, on_delete=models.CASCADE, related_name='notifications')
+    notification_type = models.CharField(max_length=50, default=TYPE_QR_PAYMENT_SUCCESS)
+    message = models.CharField(max_length=255)
+    order = models.ForeignKey('Order', on_delete=models.SET_NULL, null=True, blank=True)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Notification to {self.recipient.username}: {self.message}"

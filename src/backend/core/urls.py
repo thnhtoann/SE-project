@@ -9,7 +9,7 @@ from .views import (
     ProductViewSet, BatchViewSet, StoreInventoryViewSet,
     OrderViewSet, OrderDetailViewSet, BestWorstSellerView, ShiftViewSet,
     CustomerViewSet, DiscountViewSet, BusinessProfileView,
-    PaymentMethodSettingViewSet, MarketplaceChannelSettingViewSet,
+    PaymentMethodSettingViewSet, MarketplaceChannelSettingViewSet, NotificationViewSet,
 )
 
 router = DefaultRouter()
@@ -35,6 +35,7 @@ router.register(r'customers', CustomerViewSet)
 router.register(r'discounts', DiscountViewSet)
 router.register(r'payment-method-settings', PaymentMethodSettingViewSet)
 router.register(r'marketplace-channel-settings', MarketplaceChannelSettingViewSet)
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
     path('health/', HealthCheckView.as_view(), name='health-check'),

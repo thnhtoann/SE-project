@@ -212,6 +212,8 @@
     "edit": "Edit",
     "delete": "Delete",
     "cancel": "Cancel",
+    "new": "New",
+    "read_all_notifications": "Read All Notifications",
     "confirm_delete_product": "Are you sure you want to delete this product?",
     "category": "Category",
     "select_category": "Select a category",

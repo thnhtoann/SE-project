@@ -31,6 +31,7 @@ from .models import (
     Category, Product, Batch, StoreInventory, Order, OrderDetail, OTPRecord, InventoryAlert,
     StaffReview, StaffDocument, StaffCertificate, Shift,
     Customer, Discount, BusinessProfile, PaymentMethodSetting, MarketplaceChannelSetting,
+    Notification,
 )
 from .serializers import (
     RoleSerializer, StoreSerializer, StaffSerializer, SupplierSerializer,
@@ -40,7 +41,7 @@ from .serializers import (
     StaffReviewSerializer, StaffDocumentSerializer, StaffCertificateSerializer,
     RegisterSerializer, ShiftSerializer, PosCheckoutSerializer,
     CustomerSerializer, DiscountSerializer, BusinessProfileSerializer,
-    PaymentMethodSettingSerializer, MarketplaceChannelSettingSerializer,
+    PaymentMethodSettingSerializer, MarketplaceChannelSettingSerializer, NotificationSerializer,
 )
 from .permissions import IsCashier, IsChainManager, IsStoreManager, ROLE_RANK
 from .inventory import deduct_stock, InsufficientStockError
@@ -1605,3 +1606,26 @@ class MarketplaceChannelSettingViewSet(viewsets.ModelViewSet):
         if self.request.method in SAFE_METHODS:
             return [(IsStoreManager | IsChainManager)()]
         return [IsChainManager()]
+
+
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """ Mỗi staff chỉ thấy thông báo của chính mình (recipient=request.user)
+    -- ai được nhận thông báo nào quyết định lúc tạo (xem
+    pos/views.py::_notify_qr_payment_success), không phải ở đây. """
+    serializer_class = NotificationSerializer
+    permission_classes = [IsCashier]
+
+    def get_queryset(self):
+        return Notification.objects.filter(recipient=self.request.user).select_related('order')
+
+    @action(detail=True, methods=['patch'], url_path='mark-read')
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save(update_fields=['is_read'])
+        return Response(self.get_serializer(notification).data)
+
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        self.get_queryset().filter(is_read=False).update(is_read=True)
+        return Response({"message": "ok"})
