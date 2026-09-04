@@ -9,7 +9,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.db.models import Sum
+from django.db.models import Sum, F, DecimalField
+from rest_framework.exceptions import PermissionDenied
 # Import Models & Serializers
 from .models import (
     Role, Store, Staff, Supplier, PurchaseOrder, PurchaseOrderDetail,
@@ -21,7 +22,7 @@ from .serializers import (
     ProductSerializer, BatchSerializer, StoreInventorySerializer,
     OrderSerializer, OrderDetailSerializer, InventoryAlertSerializer
 )
-from .permissions import IsCashier, IsChainManager, IsStoreManager
+from .permissions import IsCashier, IsChainManager, IsStoreManager, IsChainManagerOrStoreManagerForStaff
 
 
 class HealthCheckView(APIView):
@@ -104,8 +105,28 @@ class StoreViewSet(viewsets.ModelViewSet):
 class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.all()
     serializer_class = StaffSerializer
-    permission_classes = [IsChainManager] # Chỉ Chain Manager mới được tạo nhân viên mới
+    permission_classes = [IsAuthenticated]
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        current_role = user.role.role_name if user.role else ""
+
+        # Các tên role quản lý/admin hợp lệ có trong DB của bạn
+        allowed_manager_roles = ['Admin', 'Chain Manager', 'ChainManager', 'Store Manager', 'StoreManager']
+
+        if current_role not in allowed_manager_roles:
+            raise PermissionDenied(f"Tài khoản của bạn (Vai trò: {current_role}) không có quyền tạo tài khoản.")
+
+        # Lấy tên role của tài khoản sắp được tạo
+        target_role_instance = serializer.validated_data.get('role')
+        target_role_name = target_role_instance.role_name if target_role_instance else ""
+
+        # Nếu người thực hiện là Store Manager (bất kể kiểu có dấu cách hay dán liền) -> Chỉ được tạo Staff
+        if current_role in ['Store Manager', 'StoreManager']:
+            if target_role_name not in ['Cashier', 'Staff']:
+                raise ValidationError({"role": "Store Manager chỉ được phép đăng ký tài khoản cho nhân viên (Cashier/Staff)."})
+
+        serializer.save()
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
     queryset = PurchaseOrder.objects.all().order_by('-order_date', '-po_id')
@@ -521,3 +542,40 @@ class BestWorstSellerView(APIView):
             "best_sellers": list(best_sellers),
             "worst_sellers": list(worst_sellers)
         }, status=status.HTTP_200_OK)
+
+
+class SalesPerformanceReportView(APIView):
+    """
+    API liệt kê hiệu suất bán hàng theo đơn hàng và chi tiết sản phẩm.
+    """
+    permission_classes = [IsChainManager | IsStoreManager]
+
+    def get(self, request):
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        # Lọc các đơn hàng đã hoàn thành
+        orders_queryset = Order.objects.filter(status__iexact='Completed')
+        if start_date:
+            orders_queryset = orders_queryset.filter(order_date__date__gte=start_date)
+        if end_date:
+            orders_queryset = orders_queryset.filter(order_date__date__lte=end_date)
+
+        # Lấy dữ liệu chi tiết từ OrderDetail
+        details = OrderDetail.objects.filter(order__in=orders_queryset).select_related('product', 'order')
+
+        results = []
+        for item in details:
+            results.append({
+                "date": str(item.order.order_date.date()) if item.order.order_date else None,
+                "product_id": item.product.product_id if item.product else None,
+                "product_name": item.product.product_name if item.product else "Unknown",
+                "barcode": item.product.barcode if item.product else None,
+                "units_sold": item.quantity,
+                "revenue": float(item.quantity * item.unit_price) if item.quantity and item.unit_price else 0.0
+            })
+
+        return Response({
+            "total_records": len(results),
+            "results": results
+        })
