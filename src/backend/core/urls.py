@@ -45,5 +45,5 @@ urlpatterns = [
     path('business-profile/', BusinessProfileView.as_view(), name='business-profile'),
     path('', include(router.urls)),
     path('statistics/best-worst-sellers/', BestWorstSellerView.as_view(), name='best-worst-sellers'),
-    path('reports/sales-performance/', SalesPerformanceReportView.as_view(), name='sales-performance-report'),
+    path('reports/sales-performance-detail/', SalesPerformanceReportView.as_view(), name='sales-performance-detail-report'),
 ]
