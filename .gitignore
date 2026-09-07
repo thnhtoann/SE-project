@@ -20,3 +20,7 @@ src/backend/staticfiles/
 
 # Docker
 *.pid
+
+#
+.postman/
+postman/

@@ -1,0 +1,43 @@
+$kind: http-request
+name: 02 - Without Discount
+url: http://localhost:8000/api/pos/products/11/price/
+method: GET
+scripts:
+  - type: afterResponse
+    code: "pm.test(\"Status code is 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      const data = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Product is not near expiry\", function () {\r
+
+      \    pm.expect(data.days_left).to.be.above(7);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"No discount is applied\", function () {\r
+
+      \    pm.expect(Number(data.discount)).to.equal(0);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Final price equals original price\", function () {\r
+
+      \    pm.expect(Number(data.final_price))\r
+
+      \        .to.equal(Number(data.original_price));\r
+
+      });"
+    language: text/javascript
+order: 2998178843512380
