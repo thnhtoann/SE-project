@@ -10,6 +10,7 @@ from .views import (
     OrderViewSet, OrderDetailViewSet, BestWorstSellerView, ShiftViewSet,
     CustomerViewSet, DiscountViewSet, BusinessProfileView,
     PaymentMethodSettingViewSet, MarketplaceChannelSettingViewSet, NotificationViewSet,
+    SalesPerformanceReportView,
 )
 
 router = DefaultRouter()
@@ -43,5 +44,6 @@ urlpatterns = [
     path('suppliers/<int:pk>/', SupplierDetailView.as_view(), name='supplier-detail'),
     path('business-profile/', BusinessProfileView.as_view(), name='business-profile'),
     path('', include(router.urls)),
-    path('api/statistics/best-worst-sellers/', BestWorstSellerView.as_view(), name='best-worst-sellers'),
+    path('statistics/best-worst-sellers/', BestWorstSellerView.as_view(), name='best-worst-sellers'),
+    path('reports/sales-performance/', SalesPerformanceReportView.as_view(), name='sales-performance-report'),
 ]
