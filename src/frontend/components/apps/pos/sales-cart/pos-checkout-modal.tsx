@@ -1,22 +1,28 @@
 'use client';
 
 import { Dialog, DialogPanel, Tab, Transition, TransitionChild } from '@headlessui/react';
-import { forwardRef, Fragment, useEffect, useImperativeHandle, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { forwardRef, Fragment, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { IRootState } from '@/store';
 import IconX from '@/components/icon/icon-x';
 import IconCashBanknotes from '@/components/icon/icon-cash-banknotes';
 import IconCreditCard from '@/components/icon/icon-credit-card';
 import IconCircleCheck from '@/components/icon/icon-circle-check';
 import IconPrinter from '@/components/icon/icon-printer';
 import { CartLineItem, PaymentMethod } from '@/components/apps/pos/pos-data';
-import { completeOrder } from '@/store/posSlice';
+import { checkoutThunk, clearCart, CheckoutResult } from '@/store/posSlice';
 import { showPosToast } from '@/components/apps/pos/pos-toast';
+import { printReceipt } from '@/components/apps/pos/print-receipt';
+import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
+import { apiFetch, ApiError } from '@/lib/api-client';
 
-type Phase = 'idle' | 'awaiting_bank_confirm' | 'processing' | 'completed' | 'rejected';
+const QR_POLL_INTERVAL_MS = 3000;
+
+type Phase = 'idle' | 'processing' | 'completed' | 'rejected';
 
 interface ReceiptSnapshot {
-    orderId: string;
+    orderId: number;
     timestamp: string;
     lineItems: CartLineItem[];
     total: number;
@@ -33,108 +39,201 @@ interface Props {
     open: boolean;
     cart: CartLineItem[];
     total: number;
+    discountPercent: number;
     autoPrintInvoice: boolean;
+    storeId: number;
+    shiftId: number | null;
     onClose: () => void;
 }
 
-const QUICK_AMOUNTS = [5, 10, 20, 50, 100];
+const QUICK_AMOUNTS = [50000, 100000, 200000, 500000, 1000000];
 
-function generateOrderId(): string {
-    const now = new Date();
-    const stamp = now.toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
-    return `ORD-${stamp}-${Math.floor(Math.random() * 900 + 100)}`;
-}
-
-const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart, total, autoPrintInvoice, onClose }, ref) => {
+const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart, total, discountPercent, autoPrintInvoice, storeId, shiftId, onClose }, ref) => {
     const { t } = getTranslation();
-    const dispatch = useDispatch();
-    const [tab, setTab] = useState<PaymentMethod>('cash');
+    const dispatch = useDispatch<any>();
+    const cashierName = useSelector((state: IRootState) => state.session.username);
+    const [tab, setTab] = useState<PaymentMethod>('Cash');
     const [phase, setPhase] = useState<Phase>('idle');
     const [tendered, setTendered] = useState(0);
     const [shortAmount, setShortAmount] = useState(false);
     const [receipt, setReceipt] = useState<ReceiptSnapshot | null>(null);
     const [receiptPrinted, setReceiptPrinted] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
+
+    // PayOS VietQR flow state — a real payment link the customer scans and
+    // pays for real; the Order itself is only created server-side once
+    // PayOSWebhookView confirms payment (see pos/views.py), so there's
+    // nothing to "simulate" here anymore.
+    const [qrCheckoutUrl, setQrCheckoutUrl] = useState('');
+    const [qrError, setQrError] = useState('');
+    const [qrRetryToken, setQrRetryToken] = useState(0);
+    const qrOrderCodeRef = useRef<number | null>(null);
 
     // Fresh state every time the modal opens — a half-typed tender amount from a previous
     // sale must not leak into the next one.
     useEffect(() => {
         if (open) {
-            setTab('cash');
+            setTab('Cash');
             setPhase('idle');
             setTendered(0);
             setShortAmount(false);
             setReceipt(null);
             setReceiptPrinted(false);
+            setRejectReason('');
+            setQrCheckoutUrl('');
+            setQrError('');
+            qrOrderCodeRef.current = null;
         }
     }, [open]);
 
+    // Creates a PayOS payment link as soon as the cashier switches to the Bank
+    // QR tab, then polls for the webhook-confirmed result. Cleans up (cancels
+    // the intent server-side) if the cashier switches tabs/closes the modal
+    // before the customer pays.
+    useEffect(() => {
+        if (!open || tab !== 'Bank QR' || phase === 'completed' || cart.length === 0) return;
+
+        let cancelled = false;
+        let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+        const start = async () => {
+            setQrError('');
+            setQrCheckoutUrl('');
+            try {
+                const created = await apiFetch<{ order_code: number; checkout_url: string; amount: number; status: string }>('/pos/qr-payments/', {
+                    method: 'POST',
+                    body: {
+                        store: storeId,
+                        shift: shiftId,
+                        discount_percent: discountPercent,
+                        items: cart.map((li) => ({
+                            product: li.productId,
+                            quantity: li.quantity,
+                            unit_price: li.unitPrice.toFixed(2),
+                            discount_type: li.discountType,
+                            discount_value: li.discountValue.toFixed(2),
+                        })),
+                    },
+                });
+                if (cancelled) return;
+                qrOrderCodeRef.current = created.order_code;
+                setQrCheckoutUrl(created.checkout_url);
+
+                pollTimer = setInterval(async () => {
+                    try {
+                        const poll = await apiFetch<{ status: string; order: CheckoutResult | null }>(`/pos/qr-payments/${created.order_code}/`);
+                        if (cancelled || poll.status !== 'Paid' || !poll.order) return;
+                        if (pollTimer) clearInterval(pollTimer);
+
+                        const finishedReceipt: ReceiptSnapshot = {
+                            orderId: poll.order.order_id,
+                            timestamp: poll.order.order_date,
+                            lineItems: cart,
+                            total: Number(poll.order.total_amount),
+                            paymentMethod: 'Bank QR',
+                        };
+                        setReceipt(finishedReceipt);
+                        dispatch(clearCart());
+                        if (autoPrintInvoice) {
+                            printReceipt({ ...finishedReceipt, storeId, cashierName: cashierName ?? '' });
+                            showPosToast(t('receipt_printed'), 'success');
+                            setReceiptPrinted(true);
+                        }
+                        setPhase('completed');
+                    } catch {
+                        // Transient poll failure — the next tick tries again.
+                    }
+                }, QR_POLL_INTERVAL_MS);
+            } catch (err) {
+                if (cancelled) return;
+                const message = err instanceof ApiError && err.body && typeof err.body === 'object' ? (err.body as { detail?: string }).detail : undefined;
+                setQrError(message || t('error_payos_unavailable'));
+            }
+        };
+
+        void start();
+
+        return () => {
+            cancelled = true;
+            if (pollTimer) clearInterval(pollTimer);
+            const orderCode = qrOrderCodeRef.current;
+            if (orderCode) {
+                void apiFetch(`/pos/qr-payments/${orderCode}/`, { method: 'POST' }).catch(() => {});
+                qrOrderCodeRef.current = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- cart/store/shift/discount are fixed for the lifetime of a single checkout attempt
+    }, [open, tab, phase, qrRetryToken]);
+
     const changeDue = Number((tendered - total).toFixed(2));
 
-    const runCompletionSequence = (paymentMethod: PaymentMethod) => {
+    const runCompletionSequence = async (paymentMethod: PaymentMethod) => {
+        if (!shiftId) {
+            setPhase('rejected');
+            setRejectReason(t('no_active_shift'));
+            return;
+        }
         setPhase('processing');
-        const orderId = generateOrderId();
-        const snapshot: ReceiptSnapshot = {
-            orderId,
-            timestamp: new Date().toISOString(),
-            lineItems: cart,
-            total,
-            paymentMethod,
-        };
-        // 1. Payment confirmed -> inventory deducted + order saved (one atomic dispatch).
-        dispatch(completeOrder({ paymentMethod, orderId }));
-        setReceipt(snapshot);
+        try {
+            // 1. Payment confirmed -> order created + inventory deducted, atomically, on the
+            //    backend (POST /api/orders/checkout/ — core/checkout.py::create_pos_order).
+            const order = await dispatch(checkoutThunk({ storeId, shiftId, paymentMethod, discountPercent, items: cart })).unwrap();
+            const finishedReceipt: ReceiptSnapshot = {
+                orderId: order.order_id,
+                timestamp: order.order_date,
+                lineItems: cart,
+                total: Number(order.total_amount),
+                paymentMethod,
+            };
+            setReceipt(finishedReceipt);
 
-        // 2. Cash drawer opens ONLY now — never before this point, and never for a QR sale.
-        if (paymentMethod === 'cash') {
-            showPosToast(t('cash_drawer_opened'), 'success');
+            // 2. Cash drawer opens ONLY now — never before this point, and never for a QR sale.
+            if (paymentMethod === 'Cash') {
+                showPosToast(t('cash_drawer_opened'), 'success');
+            }
+
+            // 3. Receipt: automatic if the F10 toggle is on, otherwise the cashier prints manually
+            //    from the completed panel (both paths satisfy FR-010, one is just cashier-gated).
+            if (autoPrintInvoice) {
+                printReceipt({ ...finishedReceipt, storeId, cashierName: cashierName ?? '' });
+                showPosToast(t('receipt_printed'), 'success');
+                setReceiptPrinted(true);
+            }
+
+            setPhase('completed');
+        } catch (err) {
+            // checkoutThunk's rejectWithValue always carries a string message (see parseError
+            // in store/posSlice.tsx), which unwrap() throws directly.
+            const message = typeof err === 'string' && err ? err : t('payment_rejected');
+            setRejectReason(message);
+            setPhase('rejected');
+            showPosToast(message, 'error');
         }
-
-        // 3. Receipt: automatic if the F10 toggle is on, otherwise the cashier prints manually
-        //    from the completed panel (both paths satisfy FR-010, one is just cashier-gated).
-        if (autoPrintInvoice) {
-            showPosToast(t('receipt_printed'), 'success');
-            setReceiptPrinted(true);
-        }
-
-        setPhase('completed');
     };
 
     const handleAttemptComplete = () => {
-        if (cart.length === 0 || phase === 'processing' || phase === 'completed') return; // FR-007 guard
-        if (tab === 'cash') {
-            if (tendered < total) {
-                setShortAmount(true);
-                return;
-            }
-            setShortAmount(false);
-            runCompletionSequence('cash');
-        } else {
-            handleSimulateConfirm();
+        // Bank QR has no manual "complete" step anymore — it finishes itself
+        // once the PayOS webhook confirms payment (see the polling effect above).
+        if (cart.length === 0 || phase === 'processing' || phase === 'completed' || tab !== 'Cash') return; // FR-007 guard
+        if (tendered < total) {
+            setShortAmount(true);
+            return;
         }
-    };
-
-    const handleSimulateConfirm = () => {
-        if (phase === 'processing' || phase === 'completed') return; // FR-007 guard
-        runCompletionSequence('bank_qr');
-    };
-
-    const handleSimulateReject = () => {
-        if (phase === 'processing' || phase === 'completed') return;
-        setPhase('rejected');
-        showPosToast(t('payment_rejected'), 'error');
+        setShortAmount(false);
+        void runCompletionSequence('Cash');
     };
 
     const handleSwitchTab = () => {
         if (phase === 'processing' || phase === 'completed') return;
-        setTab((cur) => (cur === 'cash' ? 'bank_qr' : 'cash'));
+        setTab((cur) => (cur === 'Cash' ? 'Bank QR' : 'Cash'));
         setPhase('idle');
         setShortAmount(false);
     };
 
     const handleChangeAmount = (direction: 'up' | 'down' | 'left' | 'right') => {
-        if (tab !== 'cash' || phase === 'processing' || phase === 'completed') return;
-        const delta = direction === 'up' || direction === 'right' ? 1 : -1;
-        setTendered((v) => Math.max(0, Number((v + delta).toFixed(2))));
+        if (tab !== 'Cash' || phase === 'processing' || phase === 'completed') return;
+        const delta = direction === 'up' || direction === 'right' ? 1000 : -1000;
+        setTendered((v) => Math.max(0, v + delta));
     };
 
     useImperativeHandle(ref, () => ({
@@ -144,6 +243,8 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
     }));
 
     const handlePrintReceipt = () => {
+        if (!receipt) return;
+        printReceipt({ ...receipt, storeId, cashierName: cashierName ?? '' });
         showPosToast(t('receipt_printed'), 'success');
         setReceiptPrinted(true);
     };
@@ -193,24 +294,24 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
                                             <div className="flex flex-col items-center py-4 text-center">
                                                 <IconCircleCheck className="h-12 w-12 text-success" />
                                                 <div className="mt-2 text-lg font-semibold">{t('complete')}</div>
-                                                <div className="text-white-dark">{receipt.orderId}</div>
+                                                <div className="text-white-dark">#{receipt.orderId}</div>
                                             </div>
                                             <div className="rounded-md border border-white-light p-4 dark:border-[#1b2e4b]">
                                                 <div className="mb-2 flex justify-between text-xs text-white-dark">
                                                     <span>{new Date(receipt.timestamp).toLocaleString()}</span>
-                                                    <span>{receipt.paymentMethod === 'cash' ? t('cash') : t('bank_qr')}</span>
+                                                    <span>{receipt.paymentMethod === 'Cash' ? t('cash') : t('bank_qr')}</span>
                                                 </div>
                                                 {receipt.lineItems.map((li) => (
                                                     <div key={li.productId} className="flex justify-between py-1 text-sm">
                                                         <span>
                                                             {li.name} x{li.quantity}
                                                         </span>
-                                                        <span>${li.subTotal.toFixed(2)}</span>
+                                                        <span>{currency(li.subTotal)}</span>
                                                     </div>
                                                 ))}
                                                 <div className="mt-2 flex justify-between border-t border-white-light pt-2 font-semibold dark:border-[#1b2e4b]">
                                                     <span>{t('total')}</span>
-                                                    <span>${receipt.total.toFixed(2)}</span>
+                                                    <span>{currency(receipt.total)}</span>
                                                 </div>
                                             </div>
 
@@ -228,9 +329,9 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
                                         </div>
                                     ) : (
                                         <>
-                                            <div className="mb-4 text-center text-2xl font-bold">${total.toFixed(2)}</div>
+                                            <div className="mb-4 text-center text-2xl font-bold">{currency(total)}</div>
 
-                                            <Tab.Group selectedIndex={tab === 'cash' ? 0 : 1} onChange={() => handleSwitchTab()}>
+                                            <Tab.Group selectedIndex={tab === 'Cash' ? 0 : 1} onChange={() => handleSwitchTab()}>
                                                 <Tab.List className="mb-4 flex gap-2 border-b border-white-light dark:border-[#1b2e4b]">
                                                     <Tab as={Fragment}>
                                                         {({ selected }) => (
@@ -257,14 +358,14 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
                                                 </Tab.List>
                                             </Tab.Group>
 
-                                            {tab === 'cash' ? (
+                                            {tab === 'Cash' ? (
                                                 <div>
                                                     <label htmlFor="tendered">{t('amount_received')}</label>
                                                     <input
                                                         id="tendered"
                                                         type="number"
                                                         min={0}
-                                                        step="0.01"
+                                                        step="1000"
                                                         className="form-input"
                                                         value={tendered}
                                                         onChange={(e) => {
@@ -283,44 +384,46 @@ const PosCheckoutModal = forwardRef<PosCheckoutModalHandle, Props>(({ open, cart
                                                                     setTendered(amount);
                                                                 }}
                                                             >
-                                                                ${amount}
+                                                                {currency(amount)}
                                                             </button>
                                                         ))}
                                                     </div>
                                                     <div className="mt-4 flex items-center justify-between text-lg">
                                                         <span>{t('change_due')}</span>
-                                                        <span className={`font-semibold ${changeDue < 0 ? 'text-danger' : 'text-success'}`}>
-                                                            ${Math.max(0, changeDue).toFixed(2)}
-                                                        </span>
+                                                        <span className={`font-semibold ${changeDue < 0 ? 'text-danger' : 'text-success'}`}>{currency(Math.max(0, changeDue))}</span>
                                                     </div>
                                                     {shortAmount && <div className="mt-2 text-sm text-danger">{t('amount_short')}</div>}
-                                                    <button type="button" className="btn btn-primary mt-4 w-full" onClick={handleAttemptComplete}>
+                                                    {phase === 'rejected' && <div className="mt-2 text-sm text-danger">{rejectReason}</div>}
+                                                    <button type="button" className="btn btn-primary mt-4 w-full" disabled={phase === 'processing'} onClick={handleAttemptComplete}>
                                                         {t('complete')} (F9)
                                                     </button>
                                                 </div>
                                             ) : (
                                                 <div className="flex flex-col items-center">
-                                                    {/* Fake QR placeholder — no real payment webhook exists in this build. */}
-                                                    <div className="grid h-40 w-40 grid-cols-8 grid-rows-8 gap-0.5 rounded-md border border-white-light bg-white p-2 dark:border-[#1b2e4b]">
-                                                        {Array.from({ length: 64 }).map((_, i) => {
-                                                            const row = Math.floor(i / 8);
-                                                            const col = i % 8;
-                                                            // Deterministic pseudo-random-looking pattern (checkerboard perturbed by the
-                                                            // order total) — just a visual stand-in, not a real encoded QR code.
-                                                            const on = (row * 3 + col * 5 + Math.round(total * 100)) % 2 === 0;
-                                                            return <div key={i} className={on ? 'bg-black' : 'bg-transparent'} />;
-                                                        })}
-                                                    </div>
-                                                    <div className="mt-3 text-center text-sm text-white-dark">Scan to pay ${total.toFixed(2)}</div>
+                                                    {qrError ? (
+                                                        <div className="flex w-full flex-col items-center gap-3 py-6">
+                                                            <div className="text-center text-sm text-danger">{qrError}</div>
+                                                            <button type="button" className="btn btn-outline-primary" onClick={() => setQrRetryToken((n) => n + 1)}>
+                                                                {t('try_again')}
+                                                            </button>
+                                                        </div>
+                                                    ) : qrCheckoutUrl ? (
+                                                        <>
+                                                            <iframe src={qrCheckoutUrl} title="PayOS checkout" className="h-80 w-full rounded-md border border-white-light dark:border-[#1b2e4b]" />
+                                                            <div className="mt-3 flex items-center gap-2 text-sm text-white-dark">
+                                                                <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                                                                {t('waiting_for_payment')}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="flex w-full flex-col items-center gap-3 py-10">
+                                                            <span className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                                            <div className="text-sm text-white-dark">{t('creating_qr_code')}</div>
+                                                        </div>
+                                                    )}
 
-                                                    {phase === 'rejected' && <div className="mt-3 text-sm text-danger">{t('payment_rejected')}</div>}
-
-                                                    <div className="mt-2 text-center text-xs text-white-dark">Demo stand-in — no real payment webhook in this build</div>
-                                                    <button type="button" className="btn btn-primary mt-4 w-full" onClick={handleSimulateConfirm}>
-                                                        {t('simulate_bank_confirmation')} (F9)
-                                                    </button>
-                                                    <button type="button" className="btn btn-outline-danger mt-2 w-full" onClick={handleSimulateReject}>
-                                                        {t('simulate_rejection')}
+                                                    <button type="button" className="btn btn-outline-danger mt-4 w-full" onClick={handleSwitchTab}>
+                                                        {t('cancel')}
                                                     </button>
                                                 </div>
                                             )}

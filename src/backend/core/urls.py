@@ -4,15 +4,22 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     HealthCheckView, SupplierDetailView, SupplierListCreateView,
     RoleViewSet, StoreViewSet, StaffViewSet,
+    StaffReviewViewSet, StaffDocumentViewSet, StaffCertificateViewSet,
     PurchaseOrderViewSet, PurchaseOrderDetailViewSet, ShipmentViewSet, LowStockAlertViewSet, CategoryViewSet,
     ProductViewSet, BatchViewSet, StoreInventoryViewSet,
-    OrderViewSet, OrderDetailViewSet, BestWorstSellerView, SalesPerformanceReportView,
+    OrderViewSet, OrderDetailViewSet, BestWorstSellerView, ShiftViewSet,
+    CustomerViewSet, DiscountViewSet, BusinessProfileView,
+    PaymentMethodSettingViewSet, MarketplaceChannelSettingViewSet, NotificationViewSet,
+    SalesPerformanceReportView,
 )
 
 router = DefaultRouter()
 router.register(r'roles', RoleViewSet)
 router.register(r'stores', StoreViewSet)
 router.register(r'staff', StaffViewSet)
+router.register(r'staff-reviews', StaffReviewViewSet)
+router.register(r'staff-documents', StaffDocumentViewSet)
+router.register(r'staff-certificates', StaffCertificateViewSet)
 router.register(r'purchase-orders', PurchaseOrderViewSet)
 router.register(r'purchase-order-details', PurchaseOrderDetailViewSet)
 router.register(r'shipments', ShipmentViewSet, basename='shipment')
@@ -24,11 +31,18 @@ router.register(r'batches', BatchViewSet)
 router.register(r'store-inventories', StoreInventoryViewSet)
 router.register(r'orders', OrderViewSet)
 router.register(r'order-details', OrderDetailViewSet)
+router.register(r'shifts', ShiftViewSet)
+router.register(r'customers', CustomerViewSet)
+router.register(r'discounts', DiscountViewSet)
+router.register(r'payment-method-settings', PaymentMethodSettingViewSet)
+router.register(r'marketplace-channel-settings', MarketplaceChannelSettingViewSet)
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
     path('health/', HealthCheckView.as_view(), name='health-check'),
     path('suppliers/', SupplierListCreateView.as_view(), name='supplier-list'),
     path('suppliers/<int:pk>/', SupplierDetailView.as_view(), name='supplier-detail'),
+    path('business-profile/', BusinessProfileView.as_view(), name='business-profile'),
     path('', include(router.urls)),
     path('statistics/best-worst-sellers/', BestWorstSellerView.as_view(), name='best-worst-sellers'),
     path('reports/sales-performance/', SalesPerformanceReportView.as_view(), name='sales-performance-report'),

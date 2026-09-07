@@ -1,11 +1,20 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 
 # Import tất cả các View xử lý Auth từ app core
 from core.views import (
     LogoutView,
+    RegisterRequestOTPView,
+    RegisterVerifyOTPView,
     LoginRequestOTPView,
-    LoginVerifyOTPView, BestWorstSellerView
+    LoginVerifyOTPView, BestWorstSellerView, RevenueTrendView, SalesByCategoryView,
+    RevenueByChannelView, PeakHoursView,
+    PasswordResetRequestOTPView,
+    PasswordResetVerifyOTPView,
+    GoogleLoginView,
+    FacebookLoginView,
 )
 
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -16,10 +25,23 @@ urlpatterns = [
     # API Refresh Token (Lấy Token mới khi token cũ hết hạn)
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
+    # Đăng ký công khai 2 bước (luôn tạo tài khoản Chain Manager)
+    path('api/register/request-otp/', RegisterRequestOTPView.as_view(), name='register-request-otp'),
+    path('api/register/verify-otp/', RegisterVerifyOTPView.as_view(), name='register-verify-otp'),
+
     # Luồng Đăng nhập 2 lớp (Mới)
     path('api/login/request-otp/', LoginRequestOTPView.as_view(), name='login-request-otp'),
     path('api/login/verify-otp/', LoginVerifyOTPView.as_view(), name='login-verify-otp'),
-    
+
+    # Đăng nhập/Đăng ký qua Google & Facebook (bỏ qua OTP, tự tạo tài khoản
+    # Chain Manager nếu email chưa từng đăng ký)
+    path('api/auth/google/', GoogleLoginView.as_view(), name='auth-google'),
+    path('api/auth/facebook/', FacebookLoginView.as_view(), name='auth-facebook'),
+
+    # Quên mật khẩu 2 bước
+    path('api/password-reset/request-otp/', PasswordResetRequestOTPView.as_view(), name='password-reset-request-otp'),
+    path('api/password-reset/verify-otp/', PasswordResetVerifyOTPView.as_view(), name='password-reset-verify-otp'),
+
     # API Đăng xuất
     path('api/logout/', LogoutView.as_view(), name='logout'),
     
@@ -30,8 +52,33 @@ urlpatterns = [
     path('api/webhooks/', include('omnichannel.urls')),
     path("api/pos/", include("pos.urls")),
 
+    # Kết nối Lazada (OAuth + kéo đơn hàng thật từ tài khoản sandbox/production)
+    path('api/lazada/', include('omnichannel.lazada_urls')),
+
     # Mặt hàng bán chạy và ế nhất
     path('api/reports/sales-performance/', BestWorstSellerView.as_view(), name='sales-performance-report'),
 
+    # Doanh thu theo thời gian (Analytics/Store dashboards)
+    path('api/reports/revenue-trend/', RevenueTrendView.as_view(), name='revenue-trend-report'),
+
+    # Doanh thu theo danh mục (Store dashboard "Sale by Category" panel)
+    path('api/reports/sales-by-category/', SalesByCategoryView.as_view(), name='sales-by-category-report'),
+
+    # Doanh thu theo kênh bán (Store dashboard "Revenue Sources" panel)
+    path('api/reports/revenue-by-channel/', RevenueByChannelView.as_view(), name='revenue-by-channel-report'),
+
+    # Giờ cao điểm (Store dashboard "Peak Hours" panel)
+    path('api/reports/peak-hours/', PeakHoursView.as_view(), name='peak-hours-report'),
+
     path('api/procurement/', include('forecasting.urls')),
+
+    # Doanh thu + lời khuyên kinh doanh (agent LangGraph + Gemini)
+    path('api/advisor/', include('advisor.urls')),
 ]
+
+# Django's built-in file server, not gated behind DEBUG: this app has no CDN/object
+# storage in front of MEDIA_ROOT (see the note on that setting), so without this,
+# uploaded files like Product.image_url would 404 in production. Fine at this app's
+# scale (occasional product photos); swap for a real static/object-storage front end
+# before traffic or upload volume make django.views.static.serve a bottleneck.
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

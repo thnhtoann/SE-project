@@ -5,6 +5,7 @@ Configuration is read from environment variables so the same settings
 module works both in Docker Compose and, if needed, outside it.
 """
 import os
+import dj_database_url
 from pathlib import Path
 from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -17,11 +18,66 @@ GRABMART_WEBHOOK_SECRET = os.environ.get('GRABMART_WEBHOOK_SECRET', 'dev-grabmar
 SHOPEEFOOD_WEBHOOK_SECRET = os.environ.get('SHOPEEFOOD_WEBHOOK_SECRET', 'dev-shopeefood-secret')
 BEMART_WEBHOOK_SECRET = os.environ.get('BEMART_WEBHOOK_SECRET', 'dev-bemart-secret')
 
+# Lazada Open Platform OAuth app credentials (sandbox or production seller
+# account) — from the app's "My Apps" page in the Lazada Open Platform
+# console. This is a separate, deliberately-not-spec-005 integration style
+# (OAuth + polling, see omnichannel/lazada.py) used to pull real orders from
+# a connected seller account, unlike the mocked shared-secret webhooks above.
+LAZADA_APP_KEY = os.environ.get('LAZADA_APP_KEY', '')
+LAZADA_APP_SECRET = os.environ.get('LAZADA_APP_SECRET', '')
+# REST gateway for signed calls (token create/refresh, orders/items) — set by LazopClient per call.
+LAZADA_API_URL = os.environ.get('LAZADA_API_URL', 'https://api.lazada.vn/rest')
+LAZADA_AUTH_URL = os.environ.get('LAZADA_AUTH_URL', 'https://auth.lazada.com/rest')
+# The human-facing consent page (plain redirect, not a signed API call).
+LAZADA_AUTHORIZE_PAGE_URL = os.environ.get('LAZADA_AUTHORIZE_PAGE_URL', 'https://auth.lazada.com/oauth/authorize')
+LAZADA_REDIRECT_URI = os.environ.get('LAZADA_REDIRECT_URI', 'http://localhost:8000/api/lazada/callback/')
+FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000')
+
+# Google AI Studio (Gemini) — powers the revenue-advisor LangGraph agent (see
+# advisor app). Left blank by default; advisor/graph.py raises a clear error
+# at call time (not import time) if a request needs it and it's unset.
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
+
+# Google Identity Services (Sign in with Google) — from the OAuth 2.0 Client
+# ID ("Web application" type) in the Google Cloud Console. The frontend sends
+# the OAuth access token it gets client-side; GoogleLoginView verifies it
+# against this same Client ID as the expected audience.
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '')
+
+# Facebook Login — App ID/Secret from the app's Settings > Basic page in the
+# Facebook Developers console. FacebookLoginView uses the secret server-side
+# only, to verify the access token the frontend obtained via the Facebook JS
+# SDK (never exposed to the browser).
+FACEBOOK_APP_ID = os.environ.get('FACEBOOK_APP_ID', '')
+FACEBOOK_APP_SECRET = os.environ.get('FACEBOOK_APP_SECRET', '')
+
+# PayOS (VietQR payment gateway, https://payos.vn) -- powers the real Bank QR
+# checkout in the POS module (see pos/payos_client.py, pos/views.py). Get
+# credentials from a PayOS merchant account: Payment channels > <channel> >
+# API keys. PAYOS_CHECKSUM_KEY signs outgoing payment-link requests and
+# verifies incoming webhook payloads -- never expose it to the frontend.
+PAYOS_CLIENT_ID = os.environ.get('PAYOS_CLIENT_ID', '')
+PAYOS_API_KEY = os.environ.get('PAYOS_API_KEY', '')
+PAYOS_CHECKSUM_KEY = os.environ.get('PAYOS_CHECKSUM_KEY', '')
+PAYOS_API_URL = os.environ.get('PAYOS_API_URL', 'https://api-merchant.payos.vn')
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
     if host.strip()
 ]
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+
+# PaaS platforms (Railway, Render, etc.) terminate TLS at their own proxy and
+# forward plain HTTP internally, flagging the original scheme via this
+# header — without it Django thinks every request is insecure.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -35,6 +91,7 @@ INSTALLED_APPS = [
     'omnichannel',
     'pos',
     'forecasting',
+    'advisor',
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
@@ -42,6 +99,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -71,15 +129,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# Prefers DATABASE_URL when set (the single-connection-string form every
+# PaaS Postgres add-on provides, e.g. Railway) and falls back to the
+# individual POSTGRES_* vars Docker Compose sets locally.
+_local_db_url = (
+    f"postgresql://{os.environ.get('POSTGRES_USER', 'app_user')}:"
+    f"{os.environ.get('POSTGRES_PASSWORD', 'app_password')}@"
+    f"{os.environ.get('POSTGRES_HOST', 'localhost')}:"
+    f"{os.environ.get('POSTGRES_PORT', '5432')}/"
+    f"{os.environ.get('POSTGRES_DB', 'app_db')}"
+)
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_DB', 'app_db'),
-        'USER': os.environ.get('POSTGRES_USER', 'app_user'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'app_password'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
-        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-    }
+    'default': dj_database_url.config(default=_local_db_url, conn_max_age=600),
 }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -95,14 +156,26 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+# Plain WhiteNoise storage, not CompressedManifestStaticFilesStorage — this
+# app only serves the Django admin's static assets (low traffic, no CDN-tier
+# caching need), and the Manifest variant's per-file gzip+brotli+MD5-hash
+# pass during collectstatic was slow enough on a constrained PaaS CPU to
+# blow past the platform's deploy healthcheck window. WhiteNoiseMiddleware
+# still gzips responses on the fly at request time either way.
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
+}
+
+# NOTE: MEDIA_ROOT is local container disk — fine for local Docker Compose,
+# but on most PaaS deploys (Railway included) the filesystem is ephemeral,
+# so uploaded files (e.g. StaffDocument) are lost on every redeploy/restart.
+# Swap to object storage (S3-compatible) before relying on uploads in prod.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
-    ],
-}
 
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
@@ -110,9 +183,26 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',
+    ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+}
+
+# Shared cache backend for cross-process state (login lockout / OTP-attempt
+# counters in core/views.py). Django's default LocMemCache is per-process,
+# so those counters would silently reset per worker under gunicorn — Redis
+# makes them consistent across all workers.
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': os.environ.get('REDIS_URL', 'redis://redis:6379/0'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+    }
 }
 
 AUTH_USER_MODEL = 'core.Staff'
@@ -121,4 +211,54 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=4),
 }
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Without this, Django's logging defaults to WARNING-and-up with no
+# configured handler -- any logger.info(...) call anywhere in the app
+# (e.g. omnichannel.lazada's per-push logging) is silently dropped instead
+# of reaching Railway's log stream. Root logger -> console (stdout), so
+# `docker compose logs` / Railway deploy logs pick it up.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+}
+# OTP emails (register/login/password-reset — see core/views.py send_mail
+# calls). Three tiers, picked automatically by which vars are set:
+#   1. RESEND_API_KEY set -> core.email_backend.ResendEmailBackend (HTTPS
+#      API, works on every hosting plan). Preferred -- see the module
+#      docstring for why plain SMTP doesn't work on Railway's Free/Trial/
+#      Hobby plans (outbound SMTP is blocked there; connections just hang
+#      for 20-130s and then fail, which is what sending OTP emails looked
+#      like before this was added).
+#   2. Else EMAIL_HOST set -> real SMTP (works if the host allows outbound
+#      SMTP, e.g. Railway Pro+, or any non-Railway deployment).
+#   3. Else -> Django's console backend (OTP just printed to the server
+#      log) -- fine for local dev, useless in production.
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+if RESEND_API_KEY:
+    EMAIL_BACKEND = 'core.email_backend.ResendEmailBackend'
+elif EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '1') == '1'
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'no-reply@smartprocurement.com')
+
+# Temporary testing backdoor: if set, this code is ALSO accepted (in
+# addition to the real one) by every OTP-verify endpoint (register/login/
+# password-reset), so a team can test end-to-end flows while OTP email
+# delivery is unavailable (e.g. Resend sending domain not yet verified).
+# Blank by default -- unset this in Railway once real OTP delivery works.
+OTP_BYPASS_CODE = os.environ.get('OTP_BYPASS_CODE', '')

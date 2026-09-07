@@ -7,11 +7,14 @@ import IconSearch from '@/components/icon/icon-search';
 import IconStar from '@/components/icon/icon-star';
 import IconUserPlus from '@/components/icon/icon-user-plus';
 import IconUsers from '@/components/icon/icon-users';
-import { MOCK_STAFF } from '@/data/mock-staff';
-import { StaffPerformanceStatus } from '@/types/admin';
+import { ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
+import { StaffPerformanceStatus, StaffRecord, StoreRecord } from '@/types/admin';
 import { getTranslation } from '@/i18n';
+import { IRootState } from '@/store';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useSelector } from 'react-redux';
 
 const performanceBadgeClass: Record<StaffPerformanceStatus, string> = {
     Excellent: 'bg-success-light text-success dark:bg-success dark:text-success-light',
@@ -29,19 +32,32 @@ const currency = (value: number) => (value > 0 ? `₫${value.toLocaleString('en-
 
 const ComponentsStaffList = () => {
     const { t } = getTranslation();
+    const role = useSelector((state: IRootState) => state.session.role);
+    const isChainManager = role === 'Chain Manager' || role === 'Admin';
+
+    const [selectedStoreId, setSelectedStoreId] = useState('');
     const [search, setSearch] = useState('');
-    const [filteredStaff, setFilteredStaff] = useState(MOCK_STAFF);
 
-    useEffect(() => {
-        setFilteredStaff(
-            MOCK_STAFF.filter((staff) => staff.name.toLowerCase().includes(search.toLowerCase()) || staff.branch.toLowerCase().includes(search.toLowerCase())),
-        );
-    }, [search]);
+    // Store Manager is locked server-side to their own store no matter what's
+    // requested here; ?store= only ever does something for a Chain Manager/Admin
+    // using the store picker below.
+    const staffPath = isChainManager && selectedStoreId ? `/staff/?store=${selectedStoreId}` : '/staff/';
+    const { data: staff, error: staffError, isLoading: loading } = useApi<StaffRecord[]>(staffPath);
+    const { data: stores } = useApi<StoreRecord[]>(isChainManager ? '/stores/' : null);
 
-    const totalStaff = MOCK_STAFF.length;
-    const branchCount = new Set(MOCK_STAFF.map((s) => s.branch)).size;
-    const avgMonthlySales = Math.round(MOCK_STAFF.reduce((sum, s) => sum + s.monthlySales, 0) / totalStaff);
-    const excellentCount = MOCK_STAFF.filter((s) => s.performanceStatus === 'Excellent').length;
+    const loadError = staffError ? (staffError instanceof ApiError ? String((staffError.body as { detail?: string })?.detail ?? staffError.message) : t('error_loading_staff')) : '';
+
+    const staffList = staff ?? [];
+    const storeList = stores ?? [];
+
+    const filteredStaff = staffList.filter(
+        (s) => s.full_name.toLowerCase().includes(search.toLowerCase()) || (s.store_name ?? '').toLowerCase().includes(search.toLowerCase()),
+    );
+
+    const totalStaff = staffList.length;
+    const branchCount = new Set(staffList.map((s) => s.store_name).filter(Boolean)).size;
+    const avgMonthlySales = totalStaff > 0 ? Math.round(staffList.reduce((sum, s) => sum + s.monthly_sales, 0) / totalStaff) : 0;
+    const excellentCount = staffList.filter((s) => s.performance_status === 'Excellent').length;
 
     return (
         <div>
@@ -109,6 +125,16 @@ const ComponentsStaffList = () => {
                             <IconUserPlus className="ltr:mr-2 rtl:ml-2" />
                             {t('add_staff')}
                         </Link>
+                        {isChainManager && (
+                            <select className="form-select w-auto" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)}>
+                                <option value="">{t('all_stores')}</option>
+                                {storeList.map((s) => (
+                                    <option key={s.store_id} value={s.store_id}>
+                                        {s.store_name}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                         <div className="relative">
                             <input
                                 type="text"
@@ -124,31 +150,35 @@ const ComponentsStaffList = () => {
                     </div>
                 </div>
 
-                {filteredStaff.length === 0 ? (
+                {loadError && <div className="mt-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{loadError}</div>}
+
+                {loading ? (
+                    <div className="panel mt-5 flex items-center justify-center py-16 text-white-dark">{t('loading')}</div>
+                ) : filteredStaff.length === 0 ? (
                     <div className="panel mt-5 flex items-center justify-center py-16 text-white-dark">{t('no_staff_found')}</div>
                 ) : (
                     <div className="mt-5 grid w-full grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                        {filteredStaff.map((staff) => (
+                        {filteredStaff.map((s) => (
                             <Link
-                                href={`/staff/${staff.id}`}
+                                href={`/staff/${s.staff_id}`}
                                 className="relative block overflow-hidden rounded-md bg-white text-center shadow transition hover:shadow-lg dark:bg-[#1c232f]"
-                                key={staff.id}
+                                key={s.staff_id}
                             >
                                 <div className="rounded-t-md bg-white/40 bg-[url('/assets/images/notification-bg.png')] bg-cover bg-center p-6 pb-0">
-                                    <img className="mx-auto h-20 w-20 rounded-full object-cover" src={`/assets/images/${staff.photo}`} alt={staff.name} />
+                                    <img className="mx-auto h-20 w-20 rounded-full object-cover" src="/assets/images/user-profile.jpeg" alt={s.full_name} />
                                 </div>
                                 <div className="relative -mt-6 px-6 pb-6">
                                     <div className="rounded-md bg-white px-2 py-4 shadow-md dark:bg-gray-900">
-                                        <div className="text-lg font-semibold">{staff.name}</div>
-                                        <div className="text-white-dark">{staff.role}</div>
-                                        <span className={`badge mt-2 inline-block ${performanceBadgeClass[staff.performanceStatus]}`}>{t(performanceKey[staff.performanceStatus])}</span>
+                                        <div className="text-lg font-semibold">{s.full_name}</div>
+                                        <div className="text-white-dark">{s.role_name}</div>
+                                        <span className={`badge mt-2 inline-block ${performanceBadgeClass[s.performance_status]}`}>{t(performanceKey[s.performance_status])}</span>
                                         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                                             <div className="flex-auto">
-                                                <div className="text-info">{currency(staff.monthlySales)}</div>
+                                                <div className="text-info">{currency(s.monthly_sales)}</div>
                                                 <div className="text-xs">{t('monthly_sales')}</div>
                                             </div>
                                             <div className="flex-auto">
-                                                <div className="text-info">{staff.branch}</div>
+                                                <div className="text-info">{s.store_name ?? '—'}</div>
                                                 <div className="text-xs">{t('branch')}</div>
                                             </div>
                                         </div>
@@ -156,11 +186,11 @@ const ComponentsStaffList = () => {
                                     <div className="mt-4 grid grid-cols-1 gap-2 ltr:text-left rtl:text-right">
                                         <div className="flex items-center gap-2 text-white-dark">
                                             <IconMail className="h-4 w-4 shrink-0" />
-                                            <span className="truncate">{staff.email}</span>
+                                            <span className="truncate">{s.email ?? '—'}</span>
                                         </div>
                                         <div className="flex items-center gap-2 text-white-dark">
                                             <IconPhone className="h-4 w-4 shrink-0" />
-                                            <span dir="ltr">{staff.phone}</span>
+                                            <span dir="ltr">{s.phone ?? '—'}</span>
                                         </div>
                                     </div>
                                 </div>

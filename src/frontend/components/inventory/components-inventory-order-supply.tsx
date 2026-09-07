@@ -6,14 +6,22 @@ import IconSend from '@/components/icon/icon-send';
 import IconShoppingCart from '@/components/icon/icon-shopping-cart';
 import IconTrashLines from '@/components/icon/icon-trash-lines';
 import IconX from '@/components/icon/icon-x';
-import { PRODUCTS, SUPPLIERS } from '@/data/mock-products';
 import { getTranslation } from '@/i18n';
+import { apiFetch, ApiError } from '@/lib/api-client';
+import { currency } from '@/lib/currency';
 import { getStockStatus, getTotalQuantity, stockStatusBadgeClass, stockStatusKey } from '@/lib/inventory';
-import { Product } from '@/types/admin';
+import { fetchProductCatalog } from '@/lib/inventory-assemble';
+import { useApi } from '@/lib/hooks/use-api';
+import ComponentsInventoryPurchaseOrders from './components-inventory-purchase-orders';
+import { Product, StoreRecord, Supplier } from '@/types/admin';
+import { IRootState } from '@/store';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
+import useSWR from 'swr';
 
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
+type OrderSupplyTab = 'create' | 'orders';
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 interface LineItem {
@@ -29,29 +37,37 @@ const nextItemId = (items: LineItem[]) => items.reduce((max, i) => Math.max(max,
 
 const ComponentsInventoryOrderSupply = () => {
     const { t } = getTranslation();
+    const [tab, setTab] = useState<OrderSupplyTab>('create');
+
+    const role = useSelector((state: IRootState) => state.session.role);
+    const isChainManager = role === 'Chain Manager' || role === 'Admin';
+    const sessionStoreId = useSelector((state: IRootState) => state.session.storeId);
+
+    const { data: suppliers } = useApi<Supplier[]>('/suppliers/');
+    const { data: stores } = useApi<StoreRecord[]>('/stores/');
+    const { data: catalog, isLoading: catalogLoading } = useSWR('product-catalog', fetchProductCatalog);
+    const products = useMemo(() => catalog?.products ?? [], [catalog]);
 
     const [supplierId, setSupplierId] = useState('');
+    const [storeId, setStoreId] = useState('');
     const [expectedDate, setExpectedDate] = useState('');
-    const [notes, setNotes] = useState('');
     const [items, setItems] = useState<LineItem[]>(emptyItems);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
-    const supplier = SUPPLIERS.find((s) => s.supplier_id === Number(supplierId));
-    const availableProducts = useMemo(() => PRODUCTS.filter((p) => p.supplier_id === Number(supplierId)), [supplierId]);
-    const lowStockCandidates = useMemo(() => availableProducts.filter((p) => getStockStatus(p) !== 'In Stock'), [availableProducts]);
+    // Store Manager always orders for their own branch; only a Chain Manager picks one.
+    useEffect(() => {
+        if (!isChainManager && sessionStoreId) setStoreId(String(sessionStoreId));
+    }, [isChainManager, sessionStoreId]);
 
-    const productOptions = (rowProductId: string) =>
-        availableProducts.filter((p) => String(p.product_id) === rowProductId || !items.some((i) => i.productId === String(p.product_id)));
+    const supplier = (suppliers ?? []).find((s) => s.supplier_id === Number(supplierId));
+    // core.Product has no supplier link, so every product is orderable from every supplier.
+    const lowStockCandidates = useMemo(() => products.filter((p) => getStockStatus(p) !== 'In Stock'), [products]);
 
-    const productById = (id: string): Product | undefined => availableProducts.find((p) => String(p.product_id) === id);
+    const productOptions = (rowProductId: string) => products.filter((p) => String(p.product_id) === rowProductId || !items.some((i) => i.productId === String(p.product_id)));
 
-    const changeSupplier = (id: string) => {
-        setSupplierId(id);
-        setItems(emptyItems);
-        setError('');
-        setSuccessMessage('');
-    };
+    const productById = (id: string): Product | undefined => products.find((p) => String(p.product_id) === id);
 
     const changeItem = (id: number, patch: Partial<LineItem>) => {
         setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
@@ -63,7 +79,6 @@ const ComponentsInventoryOrderSupply = () => {
     };
 
     const addItem = () => {
-        if (!supplierId) return;
         setItems((prev) => [...prev, { id: nextItemId(prev), productId: '', quantity: '', unitCost: '' }]);
     };
 
@@ -95,31 +110,63 @@ const ComponentsInventoryOrderSupply = () => {
         { lineCount: 0, quantity: 0, subtotal: 0 },
     );
 
+    // Chain Manager's branch choice resets each time (they might order for a different
+    // branch next); Store Manager stays locked to their own.
+    const resetStoreId = () => setStoreId(isChainManager ? '' : sessionStoreId ? String(sessionStoreId) : '');
+
     const resetOrder = () => {
         setSupplierId('');
+        resetStoreId();
         setExpectedDate('');
-        setNotes('');
         setItems(emptyItems);
         setError('');
         setSuccessMessage('');
     };
 
-    const submitOrder = (e: React.FormEvent) => {
+    const submitOrder = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
 
         if (!supplierId) return setError(t('error_select_supplier'));
+        if (!storeId) return setError(t('error_select_store'));
         const validItems = items.filter((i) => i.productId);
         if (validItems.length === 0) return setError(t('error_add_at_least_one_item'));
         if (validItems.some((i) => !i.quantity || Number(i.quantity) <= 0)) return setError(t('error_line_item_incomplete'));
 
-        setSuccessMessage(
-            `${t('order_sent_prefix')} ${supplier?.supplier_name ?? ''} — ${totals.lineCount} ${t('items_lowercase')}, ${totals.quantity} ${t('units')}, ${t('total')} ${currency(totals.subtotal)}.`,
-        );
-        setSupplierId('');
-        setExpectedDate('');
-        setNotes('');
-        setItems(emptyItems);
+        setSubmitting(true);
+        try {
+            const po = await apiFetch<{ po_id: number }>('/purchase-orders/', {
+                method: 'POST',
+                body: {
+                    supplier: Number(supplierId),
+                    store: Number(storeId),
+                    order_date: today(),
+                    expected_delivery_date: expectedDate || null,
+                    details: validItems.map((i) => ({
+                        product: Number(i.productId),
+                        order_qty: Number(i.quantity),
+                        unit_cost: i.unitCost || '0',
+                    })),
+                },
+            });
+
+            setSuccessMessage(
+                `${t('order_sent_prefix')} ${supplier?.supplier_name ?? ''} — #${po.po_id}, ${totals.lineCount} ${t('items_lowercase')}, ${totals.quantity} ${t('units')}, ${t('total')} ${currency(totals.subtotal)}.`,
+            );
+            setSupplierId('');
+            resetStoreId();
+            setExpectedDate('');
+            setItems(emptyItems);
+        } catch (err) {
+            if (err instanceof ApiError) {
+                const body = err.body as { detail?: string } | null;
+                setError(body?.detail ?? err.message);
+            } else {
+                setError(t('error_create_order_failed'));
+            }
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
@@ -136,31 +183,77 @@ const ComponentsInventoryOrderSupply = () => {
             </ul>
 
             <div className="pt-5">
-                {successMessage && (
-                    <div className="mb-5 flex items-center justify-between rounded border border-success bg-success-light px-4 py-3 text-success dark:bg-success dark:bg-opacity-20">
-                        <div>
-                            <span className="font-semibold">{t('order_sent_title')}:</span> {successMessage}
-                        </div>
-                        <button type="button" onClick={() => setSuccessMessage('')} className="shrink-0 hover:opacity-70">
-                            <IconX className="h-4 w-4" />
+                <ul className="mb-5 flex gap-2 border-b border-white-light dark:border-[#1b2e4b]">
+                    <li>
+                        <button
+                            type="button"
+                            className={`-mb-px border-b-2 px-4 py-2 ${tab === 'create' ? '!border-primary text-primary' : 'border-transparent'}`}
+                            onClick={() => setTab('create')}
+                        >
+                            {t('new_supply_order')}
                         </button>
-                    </div>
-                )}
-                {error && <div className="mb-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{error}</div>}
+                    </li>
+                    <li>
+                        <button
+                            type="button"
+                            className={`-mb-px border-b-2 px-4 py-2 ${tab === 'orders' ? '!border-primary text-primary' : 'border-transparent'}`}
+                            onClick={() => setTab('orders')}
+                        >
+                            {t('purchase_orders')}
+                        </button>
+                    </li>
+                </ul>
 
-                <form onSubmit={submitOrder} className="flex flex-col gap-5 xl:flex-row">
+                {tab === 'orders' ? (
+                    <ComponentsInventoryPurchaseOrders />
+                ) : (
+                    <>
+                        {successMessage && (
+                            <div className="mb-5 flex items-center justify-between rounded border border-success bg-success-light px-4 py-3 text-success dark:bg-success dark:bg-opacity-20">
+                                <div>
+                                    <span className="font-semibold">{t('order_sent_title')}:</span> {successMessage}
+                                </div>
+                                <button type="button" onClick={() => setSuccessMessage('')} className="shrink-0 hover:opacity-70">
+                                    <IconX className="h-4 w-4" />
+                                </button>
+                            </div>
+                        )}
+                        {error && <div className="mb-5 rounded border border-danger bg-danger-light px-4 py-3 text-danger">{error}</div>}
+
+                        <form onSubmit={submitOrder} className="flex flex-col gap-5 xl:flex-row">
                     <div className="panel flex-1">
                         <div className="mb-5 flex items-center gap-2">
                             <IconShoppingCart className="h-5 w-5 shrink-0 text-primary" />
                             <h2 className="text-xl">{t('new_supply_order')}</h2>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                            <div>
+                                <label htmlFor="storeId">{t('store')}</label>
+                                {isChainManager ? (
+                                    <select id="storeId" className="form-select" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+                                        <option value="">{t('select_store')}</option>
+                                        {(stores ?? []).map((s) => (
+                                            <option key={s.store_id} value={s.store_id}>
+                                                {s.store_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        id="storeId"
+                                        type="text"
+                                        className="form-input"
+                                        value={(stores ?? []).find((s) => s.store_id === Number(storeId))?.store_name ?? ''}
+                                        disabled
+                                    />
+                                )}
+                            </div>
                             <div>
                                 <label htmlFor="supplierId">{t('supplier')}</label>
-                                <select id="supplierId" className="form-select" value={supplierId} onChange={(e) => changeSupplier(e.target.value)}>
+                                <select id="supplierId" className="form-select" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
                                     <option value="">{t('select_supplier')}</option>
-                                    {SUPPLIERS.map((s) => (
+                                    {(suppliers ?? []).map((s) => (
                                         <option key={s.supplier_id} value={s.supplier_id}>
                                             {s.supplier_name}
                                         </option>
@@ -173,25 +266,14 @@ const ComponentsInventoryOrderSupply = () => {
                             </div>
                             <div>
                                 <label htmlFor="expectedDate">{t('expected_delivery_date')}</label>
-                                <input
-                                    id="expectedDate"
-                                    type="date"
-                                    className="form-input"
-                                    min={today()}
-                                    value={expectedDate}
-                                    onChange={(e) => setExpectedDate(e.target.value)}
-                                    disabled={!supplierId}
-                                />
+                                <input id="expectedDate" type="date" className="form-input" min={today()} value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
                             </div>
                         </div>
 
                         <hr className="my-6 border-white-light dark:border-[#1b2e4b]" />
 
-                        {!supplierId ? (
-                            <div className="grid place-content-center gap-2 rounded-md border border-dashed border-white-light py-14 text-center text-white-dark dark:border-[#1b2e4b]">
-                                <IconBox className="mx-auto h-8 w-8" />
-                                <p>{t('choose_supplier_to_begin')}</p>
-                            </div>
+                        {catalogLoading ? (
+                            <div className="py-14 text-center text-white-dark">{t('loading')}</div>
                         ) : (
                             <div>
                                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -246,7 +328,7 @@ const ComponentsInventoryOrderSupply = () => {
                                                                 <div className="mt-2 flex items-center gap-2 text-xs">
                                                                     <span className={`badge ${stockStatusBadgeClass[stockStatus]}`}>{t(stockStatusKey[stockStatus])}</span>
                                                                     <span className="text-white-dark">
-                                                                        {t('quantity_on_hand')}: {getTotalQuantity(product)} {product.unit}
+                                                                        {t('quantity_on_hand')}: {getTotalQuantity(product)}
                                                                     </span>
                                                                 </div>
                                                             )}
@@ -286,18 +368,6 @@ const ComponentsInventoryOrderSupply = () => {
                                     <IconPlus />
                                     {t('add_item')}
                                 </button>
-
-                                <div className="mt-6">
-                                    <label htmlFor="notes">{t('notes_to_supplier')}</label>
-                                    <textarea
-                                        id="notes"
-                                        rows={3}
-                                        className="form-textarea resize-none"
-                                        placeholder={t('notes_to_supplier_placeholder')}
-                                        value={notes}
-                                        onChange={(e) => setNotes(e.target.value)}
-                                    />
-                                </div>
                             </div>
                         )}
                     </div>
@@ -328,7 +398,7 @@ const ComponentsInventoryOrderSupply = () => {
 
                         <div className="panel">
                             <div className="grid grid-cols-1 gap-4">
-                                <button type="submit" className="btn btn-success w-full gap-2">
+                                <button type="submit" className="btn btn-success w-full gap-2" disabled={submitting}>
                                     <IconSend className="h-4.5 w-4.5 shrink-0" />
                                     {t('submit_order')}
                                 </button>
@@ -340,6 +410,8 @@ const ComponentsInventoryOrderSupply = () => {
                         </div>
                     </div>
                 </form>
+                    </>
+                )}
             </div>
         </div>
     );

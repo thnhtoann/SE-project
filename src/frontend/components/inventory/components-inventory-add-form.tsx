@@ -1,87 +1,159 @@
 'use client';
 import IconBox from '@/components/icon/icon-box';
-import IconPlus from '@/components/icon/icon-plus';
-import IconTag from '@/components/icon/icon-tag';
-import IconX from '@/components/icon/icon-x';
-import { SUPPLIERS } from '@/data/mock-products';
 import { getTranslation } from '@/i18n';
+import { apiFetch, ApiError } from '@/lib/api-client';
+import { useApi } from '@/lib/hooks/use-api';
+import { currency } from '@/lib/currency';
+import { CategoryRecord, ProductApiRecord } from '@/types/admin';
 import Link from 'next/link';
-import React, { useState } from 'react';
-
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
+import { useRouter } from 'next/navigation';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface FormState {
     productName: string;
-    category: string;
+    categoryId: string;
     price: string;
-    unit: string;
     barcode: string;
-    storageNotes: string;
-    batchNo: string;
+    minThreshold: string;
     manufactureDate: string;
     expiryDate: string;
-    supplierId: string;
-    minThreshold: string;
 }
 
 const emptyForm: FormState = {
     productName: '',
-    category: '',
+    categoryId: '',
     price: '',
-    unit: '',
     barcode: '',
-    storageNotes: '',
-    batchNo: '',
+    minThreshold: '',
     manufactureDate: '',
     expiryDate: '',
-    supplierId: '',
-    minThreshold: '',
 };
 
-const CATEGORIES = ['Beverages', 'Food', 'Snacks', 'Dairy', 'Personal Care', 'Household', 'Tobacco'];
+const NEW_CATEGORY_OPTION = '__new__';
 
 const ComponentsInventoryAddForm = () => {
     const { t } = getTranslation();
+    const router = useRouter();
     const [form, setForm] = useState<FormState>(emptyForm);
-    const [tags, setTags] = useState<string[]>([]);
-    const [tagInput, setTagInput] = useState('');
+    const { data: categories, mutate: mutateCategories } = useApi<CategoryRecord[]>('/categories/');
     const [error, setError] = useState('');
-    const [success, setSuccess] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [createdProductId, setCreatedProductId] = useState<number | null>(null);
 
-    const changeValue = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const [addingCategory, setAddingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [categoryError, setCategoryError] = useState('');
+    const [creatingCategory, setCreatingCategory] = useState(false);
+
+    const imageInputRef = useRef<HTMLInputElement>(null);
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+    const [imageError, setImageError] = useState('');
+
+    useEffect(() => {
+        // Revoke the previous object URL whenever it's replaced or the component unmounts.
+        return () => {
+            if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+        };
+    }, [imagePreviewUrl]);
+
+    const changeImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setImageError('');
+        if (file.size > 5 * 1024 * 1024) {
+            setImageError(t('error_image_too_large'));
+            if (imageInputRef.current) imageInputRef.current.value = '';
+            return;
+        }
+        setImageFile(file);
+        setImagePreviewUrl(URL.createObjectURL(file));
+    };
+
+    const changeValue = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { id, value } = e.target;
+        if (id === 'categoryId' && value === NEW_CATEGORY_OPTION) {
+            setAddingCategory(true);
+            return;
+        }
         setForm((prev) => ({ ...prev, [id]: value }));
     };
 
-    const addTag = () => {
-        const value = tagInput.trim();
-        if (value && !tags.includes(value)) {
-            setTags((prev) => [...prev, value]);
+    const createCategory = async () => {
+        setCategoryError('');
+        if (!newCategoryName.trim()) return setCategoryError(t('error_category_name_required'));
+
+        setCreatingCategory(true);
+        try {
+            const category = await apiFetch<CategoryRecord>('/categories/', { method: 'POST', body: { category_name: newCategoryName.trim() } });
+            await mutateCategories((prev) => [...(prev ?? []), category], { revalidate: false });
+            setForm((prev) => ({ ...prev, categoryId: String(category.category_id) }));
+            setAddingCategory(false);
+            setNewCategoryName('');
+        } catch (err) {
+            setCategoryError(err instanceof ApiError ? (err.body as { detail?: string } | null)?.detail ?? err.message : t('error_category_name_required'));
+        } finally {
+            setCreatingCategory(false);
         }
-        setTagInput('');
     };
 
-    const removeTag = (tag: string) => setTags((prev) => prev.filter((t) => t !== tag));
-
-    const submitForm = (e: React.FormEvent) => {
+    const submitForm = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
 
         if (!form.productName) return setError(t('error_product_name_required'));
-        if (!form.category) return setError(t('error_category_required'));
+        if (!form.categoryId) return setError(t('error_category_required'));
         if (!form.price || Number(form.price) <= 0) return setError(t('error_price_required'));
         if (!form.barcode) return setError(t('error_barcode_required'));
-        if (!form.supplierId) return setError(t('error_supplier_required'));
+        if ((form.manufactureDate && !form.expiryDate) || (!form.manufactureDate && form.expiryDate)) {
+            return setError(t('error_batch_dates_incomplete'));
+        }
 
-        // No backend yet — frontend-only, so the new product isn't persisted
-        // into the mock Product List.
-        setSuccess(true);
+        setSubmitting(true);
+        try {
+            const product = await apiFetch<ProductApiRecord>('/products/', {
+                method: 'POST',
+                body: {
+                    barcode: form.barcode,
+                    product_name: form.productName,
+                    base_price: form.price,
+                    min_threshold: Number(form.minThreshold) || 0,
+                    category: Number(form.categoryId),
+                },
+            });
+
+            if (form.manufactureDate && form.expiryDate) {
+                await apiFetch('/batches/', {
+                    method: 'POST',
+                    body: { product: product.product_id, manufacture_date: form.manufactureDate, expiration_date: form.expiryDate },
+                });
+            }
+
+            if (imageFile) {
+                const formData = new FormData();
+                formData.append('file', imageFile);
+                // Best-effort: the product itself was already created successfully, so an
+                // image upload failure shouldn't block the user from seeing that.
+                await apiFetch(`/products/${product.product_id}/upload-image/`, { method: 'POST', body: formData }).catch(() => {});
+            }
+
+            setCreatedProductId(product.product_id);
+        } catch (err) {
+            if (err instanceof ApiError) {
+                const body = err.body as Record<string, string[]> | { detail?: string } | null;
+                const firstFieldError = body && typeof body === 'object' && !('detail' in body) ? Object.values(body)[0]?.[0] : undefined;
+                setError(firstFieldError ?? (body as { detail?: string })?.detail ?? err.message);
+            } else {
+                setError(t('error_create_product_failed'));
+            }
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    const supplier = SUPPLIERS.find((s) => s.supplier_id === Number(form.supplierId));
     const price = Number(form.price) || 0;
 
-    if (success) {
+    if (createdProductId !== null) {
         return (
             <div>
                 <div className="panel mx-auto mt-10 max-w-lg text-center">
@@ -89,9 +161,14 @@ const ComponentsInventoryAddForm = () => {
                     <p className="text-white-dark">
                         {form.productName} {t('product_created_message')}
                     </p>
-                    <Link href="/inventory" className="btn btn-primary mt-6">
-                        {t('back_to_product_list')}
-                    </Link>
+                    <div className="mt-6 flex justify-center gap-3">
+                        <Link href={`/inventory/${createdProductId}`} className="btn btn-outline-primary">
+                            {t('view')}
+                        </Link>
+                        <button type="button" className="btn btn-primary" onClick={() => router.push('/inventory')}>
+                            {t('back_to_product_list')}
+                        </button>
+                    </div>
                 </div>
             </div>
         );
@@ -116,44 +193,20 @@ const ComponentsInventoryAddForm = () => {
                 <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
                     <div className="panel">
                         <h6 className="mb-5 text-lg font-bold">{t('preview')}</h6>
-                        <div className="grid h-32 w-32 mx-auto place-content-center rounded-md border border-dashed border-white-light text-white-dark dark:border-[#1b2e4b]">
-                            <IconBox className="h-10 w-10" />
-                        </div>
+                        <label
+                            htmlFor="productImageInput"
+                            className="group relative mx-auto grid h-32 w-32 cursor-pointer place-content-center overflow-hidden rounded-md border border-dashed border-white-light text-white-dark dark:border-[#1b2e4b]"
+                        >
+                            {imagePreviewUrl ? <img src={imagePreviewUrl} alt="" className="h-full w-full object-cover" /> : <IconBox className="h-10 w-10" />}
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-center text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                                {t('change_photo')}
+                            </span>
+                        </label>
+                        <input id="productImageInput" ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={changeImage} />
+                        {imageError && <p className="mt-2 text-center text-xs text-danger">{imageError}</p>}
                         <div className="mt-4 text-center">
                             <div className="font-semibold">{form.productName || t('product_name')}</div>
-                            <div className="text-sm text-white-dark">{supplier?.supplier_name ?? t('supplier')}</div>
                             <div className="mt-2 text-xl font-bold">{price > 0 ? currency(price) : '₫0'}</div>
-                        </div>
-                        {tags.length > 0 && (
-                            <div className="mt-4 flex flex-wrap justify-center gap-2">
-                                {tags.map((tag) => (
-                                    <span key={tag} className="badge badge-outline-primary inline-flex items-center gap-1">
-                                        <IconTag className="h-3 w-3" />
-                                        {tag}
-                                        <button type="button" onClick={() => removeTag(tag)} className="hover:text-danger">
-                                            <IconX className="h-3 w-3" />
-                                        </button>
-                                    </span>
-                                ))}
-                            </div>
-                        )}
-                        <div className="mt-4 flex gap-2">
-                            <input
-                                type="text"
-                                className="form-input"
-                                placeholder={t('add_tag_placeholder')}
-                                value={tagInput}
-                                onChange={(e) => setTagInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        addTag();
-                                    }
-                                }}
-                            />
-                            <button type="button" className="btn btn-outline-primary shrink-0" onClick={addTag}>
-                                <IconPlus />
-                            </button>
                         </div>
                     </div>
 
@@ -166,34 +219,49 @@ const ComponentsInventoryAddForm = () => {
                                     <input id="productName" type="text" placeholder="e.g. Coca-Cola 330ml" className="form-input" value={form.productName} onChange={changeValue} required />
                                 </div>
                                 <div>
-                                    <label htmlFor="category">{t('category')}</label>
-                                    <select id="category" className="form-select" value={form.category} onChange={changeValue} required>
+                                    <label htmlFor="categoryId">{t('category')}</label>
+                                    <select id="categoryId" className="form-select" value={form.categoryId} onChange={changeValue} required>
                                         <option value="">{t('select_category')}</option>
-                                        {CATEGORIES.map((c) => (
-                                            <option key={c} value={c}>
-                                                {c}
+                                        {(categories ?? []).map((c) => (
+                                            <option key={c.category_id} value={c.category_id}>
+                                                {c.category_name}
                                             </option>
                                         ))}
+                                        <option value={NEW_CATEGORY_OPTION}>{t('add_new_category')}</option>
                                     </select>
-                                </div>
-                                <div>
-                                    <label htmlFor="supplierId">{t('supplier')}</label>
-                                    <select id="supplierId" className="form-select" value={form.supplierId} onChange={changeValue} required>
-                                        <option value="">{t('select_supplier')}</option>
-                                        {SUPPLIERS.map((s) => (
-                                            <option key={s.supplier_id} value={s.supplier_id}>
-                                                {s.supplier_name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    {addingCategory && (
+                                        <div className="mt-2 flex items-start gap-2">
+                                            <div className="flex-1">
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    placeholder={t('new_category_name_placeholder')}
+                                                    value={newCategoryName}
+                                                    onChange={(e) => setNewCategoryName(e.target.value)}
+                                                    autoFocus
+                                                />
+                                                {categoryError && <p className="mt-1 text-xs text-danger">{categoryError}</p>}
+                                            </div>
+                                            <button type="button" className="btn btn-primary btn-sm" onClick={createCategory} disabled={creatingCategory}>
+                                                {t('add')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-outline-danger btn-sm"
+                                                onClick={() => {
+                                                    setAddingCategory(false);
+                                                    setNewCategoryName('');
+                                                    setCategoryError('');
+                                                }}
+                                            >
+                                                {t('cancel')}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="price">{t('price')} (₫)</label>
                                     <input id="price" type="number" min={0} placeholder="e.g. 12000" className="form-input" value={form.price} onChange={changeValue} required />
-                                </div>
-                                <div>
-                                    <label htmlFor="unit">{t('unit_type')}</label>
-                                    <input id="unit" type="text" placeholder="e.g. can, bottle, pack" className="form-input" value={form.unit} onChange={changeValue} />
                                 </div>
                                 <div>
                                     <label htmlFor="barcode">{t('barcode')}</label>
@@ -203,20 +271,13 @@ const ComponentsInventoryAddForm = () => {
                                     <label htmlFor="minThreshold">{t('min_threshold')}</label>
                                     <input id="minThreshold" type="number" min={0} placeholder="e.g. 30" className="form-input" value={form.minThreshold} onChange={changeValue} />
                                 </div>
-                                <div className="sm:col-span-2">
-                                    <label htmlFor="storageNotes">{t('storage_notes')}</label>
-                                    <textarea id="storageNotes" rows={2} placeholder={t('storage_notes_placeholder')} className="form-textarea resize-none" value={form.storageNotes} onChange={changeValue} />
-                                </div>
                             </div>
                         </div>
 
                         <div className="mb-5 rounded-md border border-[#ebedf2] bg-white p-4 dark:border-[#191e3a] dark:bg-black">
-                            <h6 className="mb-5 text-lg font-bold">{t('initial_batch')}</h6>
-                            <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-                                <div>
-                                    <label htmlFor="batchNo">{t('batch_no')}</label>
-                                    <input id="batchNo" type="text" placeholder="e.g. 1011" className="form-input" value={form.batchNo} onChange={changeValue} />
-                                </div>
+                            <h6 className="mb-2 text-lg font-bold">{t('initial_batch')}</h6>
+                            <p className="mb-5 text-sm text-white-dark">{t('initial_batch_hint')}</p>
+                            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                                 <div>
                                     <label htmlFor="manufactureDate">{t('manufacture_date')}</label>
                                     <input id="manufactureDate" type="date" className="form-input" value={form.manufactureDate} onChange={changeValue} />
@@ -232,7 +293,7 @@ const ComponentsInventoryAddForm = () => {
                             <Link href="/inventory" className="btn btn-outline-danger">
                                 {t('cancel')}
                             </Link>
-                            <button type="submit" className="btn btn-primary">
+                            <button type="submit" className="btn btn-primary" disabled={submitting}>
                                 {t('create_product')}
                             </button>
                         </div>

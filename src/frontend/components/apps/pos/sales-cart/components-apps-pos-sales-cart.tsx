@@ -1,82 +1,82 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '@/store';
-import { addLineItem, removeLineItem, setDiscountPercent, setLineItemQuantity, toggleAutoPrint } from '@/store/posSlice';
-import { CURRENT_BRANCH, CURRENT_EMPLOYEE, mockProducts, Product } from '@/components/apps/pos/pos-data';
+import { addLineItem, fetchActiveShift, removeLineItem, setDiscountPercent, setLineItemDiscount, setLineItemQuantity, toggleAutoPrint } from '@/store/posSlice';
 import PosProductSearch from './pos-product-search';
 import PosCartLineItemRow from './pos-cart-line-item-row';
 import PosCheckoutModal, { PosCheckoutModalHandle } from './pos-checkout-modal';
 import PosToastContainer, { showPosToast } from '@/components/apps/pos/pos-toast';
 import { useGlobalHotkeys } from '@/components/apps/pos/pos-hotkeys';
+import { useStoreCatalog, CatalogEntry } from '@/lib/hooks/use-store-catalog';
+import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 
 const ComponentsAppsPosSalesCart = () => {
     const { t } = getTranslation();
-    const dispatch = useDispatch();
+    const dispatch = useDispatch<any>();
     const cart = useSelector((state: IRootState) => state.pos.cart);
     const discountPercent = useSelector((state: IRootState) => state.pos.discountPercent);
     const autoPrintInvoice = useSelector((state: IRootState) => state.pos.autoPrintInvoice);
-    const inventory = useSelector((state: IRootState) => state.pos.inventory);
+    const activeShift = useSelector((state: IRootState) => state.pos.activeShift);
+    const username = useSelector((state: IRootState) => state.session.username);
+    const storeId = useSelector((state: IRootState) => state.session.storeId);
+
+    const { entries, loading: catalogLoading } = useStoreCatalog(storeId);
 
     const [searchValue, setSearchValue] = useState('');
-    const [showCustomForm, setShowCustomForm] = useState(false);
     const [checkoutOpen, setCheckoutOpen] = useState(false);
     const checkoutModalRef = useRef<PosCheckoutModalHandle>(null);
 
+    useEffect(() => {
+        if (storeId) dispatch(fetchActiveShift(storeId));
+    }, [dispatch, storeId]);
+
+    // rawSubtotal: before any per-item discount (what "Subtotal" should mean).
+    // subtotal: after per-item discounts, before the whole-cart % discount --
+    // this is what discountPercent applies on top of, matching
+    // core/checkout.py::create_pos_order's math exactly.
+    const rawSubtotal = useMemo(() => Number(cart.reduce((sum, li) => sum + li.unitPrice * li.quantity, 0).toFixed(2)), [cart]);
     const subtotal = useMemo(() => Number(cart.reduce((sum, li) => sum + li.subTotal, 0).toFixed(2)), [cart]);
+    const itemDiscountsTotal = Number((rawSubtotal - subtotal).toFixed(2));
     const discountAmount = Number((subtotal * (discountPercent / 100)).toFixed(2));
     const total = Number((subtotal - discountAmount).toFixed(2));
 
     const suggestions = useMemo(() => {
         const q = searchValue.trim().toLowerCase();
         if (!q) return [];
-        return mockProducts.filter((p) => p.name.toLowerCase().includes(q) || p.barcode.includes(q)).slice(0, 6);
-    }, [searchValue]);
+        return entries.filter((e) => e.product.product_name.toLowerCase().includes(q) || e.product.barcode.includes(q)).slice(0, 6);
+    }, [entries, searchValue]);
 
-    const findProduct = (query: string): Product | undefined => {
+    const findEntry = (query: string): CatalogEntry | undefined => {
         const trimmed = query.trim();
         const q = trimmed.toLowerCase();
         if (!q) return undefined;
         return (
-            mockProducts.find((p) => p.barcode === trimmed) ||
-            mockProducts.find((p) => p.name.toLowerCase() === q) ||
-            mockProducts.find((p) => p.name.toLowerCase().includes(q) || p.barcode.includes(q))
+            entries.find((e) => e.product.barcode === trimmed) ||
+            entries.find((e) => e.product.product_name.toLowerCase() === q) ||
+            entries.find((e) => e.product.product_name.toLowerCase().includes(q) || e.product.barcode.includes(q))
         );
     };
 
-    const handleAddProduct = (product: Product) => {
-        const inv = inventory.find((r) => r.productId === product.id);
-        if (!inv || inv.available <= 0) {
-            showPosToast(`${t('out_of_stock')}: ${product.name}`, 'error');
+    const handleAddProduct = (entry: CatalogEntry) => {
+        if (entry.available <= 0) {
+            showPosToast(`${t('out_of_stock')}: ${entry.product.product_name}`, 'error');
             return;
         }
-        dispatch(addLineItem(product));
+        dispatch(addLineItem({ product: entry.product, unitPrice: entry.unitPrice }));
         setSearchValue('');
     };
 
     const handleScanSubmit = () => {
         if (!searchValue.trim()) return;
-        const product = findProduct(searchValue);
-        if (!product) {
+        const entry = findEntry(searchValue);
+        if (!entry) {
             showPosToast(t('product_not_found'), 'error');
             return;
         }
-        handleAddProduct(product);
-    };
-
-    const handleAddCustomProduct = (name: string, price: number) => {
-        const customProduct: Product = {
-            id: `custom-${Date.now()}`,
-            barcode: '—',
-            name,
-            basePrice: price,
-            category: 'Custom',
-            unit: 'item',
-        };
-        dispatch(addLineItem(customProduct));
-        setShowCustomForm(false);
+        handleAddProduct(entry);
     };
 
     const handleDiscount = () => {
@@ -91,12 +91,15 @@ const ComponentsAppsPosSalesCart = () => {
             showPosToast('Cart is empty', 'error');
             return;
         }
+        if (!activeShift) {
+            showPosToast(t('no_active_shift'), 'error');
+            return;
+        }
         setCheckoutOpen(true);
     };
 
     useGlobalHotkeys({
         onScanSubmit: handleScanSubmit,
-        onCustomProduct: () => setShowCustomForm((v) => !v),
         onDiscount: handleDiscount,
         onCheckoutOrComplete: () => {
             if (!checkoutOpen) {
@@ -119,7 +122,7 @@ const ComponentsAppsPosSalesCart = () => {
                     <div>
                         <div className="text-lg font-bold">{t('sales_cart')}</div>
                         <div className="text-sm text-white-dark">
-                            {t('employee')}: {CURRENT_EMPLOYEE.name} · {CURRENT_BRANCH}
+                            {t('employee')}: {username ?? '—'}
                         </div>
                     </div>
                     <button
@@ -131,15 +134,13 @@ const ComponentsAppsPosSalesCart = () => {
                     </button>
                 </div>
 
-                <PosProductSearch
-                    value={searchValue}
-                    onChange={setSearchValue}
-                    suggestions={suggestions}
-                    onSelectSuggestion={handleAddProduct}
-                    showCustomForm={showCustomForm}
-                    onCloseCustomForm={() => setShowCustomForm(false)}
-                    onAddCustomProduct={handleAddCustomProduct}
-                />
+                {!activeShift && (
+                    <div className="mb-4 rounded-md border border-warning bg-warning-light px-4 py-3 text-sm text-warning dark:bg-warning/10">
+                        {t('no_active_shift')}
+                    </div>
+                )}
+
+                <PosProductSearch value={searchValue} onChange={setSearchValue} suggestions={suggestions} onSelectSuggestion={handleAddProduct} />
 
                 <div className="mt-6 table-responsive">
                     <table>
@@ -148,6 +149,7 @@ const ComponentsAppsPosSalesCart = () => {
                                 <th>Product</th>
                                 <th className="w-1">Qty</th>
                                 <th className="w-1">Price</th>
+                                <th className="w-1">{t('discount')}</th>
                                 <th className="w-1">Subtotal</th>
                                 <th className="w-1"></th>
                             </tr>
@@ -155,8 +157,8 @@ const ComponentsAppsPosSalesCart = () => {
                         <tbody>
                             {cart.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="!text-center font-semibold text-white-dark">
-                                        No items yet — scan a barcode or search above
+                                    <td colSpan={6} className="!text-center font-semibold text-white-dark">
+                                        {catalogLoading ? t('loading') : 'No items yet — scan a barcode or search above'}
                                     </td>
                                 </tr>
                             )}
@@ -165,6 +167,7 @@ const ComponentsAppsPosSalesCart = () => {
                                     key={item.productId}
                                     item={item}
                                     onQuantityChange={(productId, quantity) => dispatch(setLineItemQuantity({ productId, quantity }))}
+                                    onDiscountChange={(productId, discountType, discountValue) => dispatch(setLineItemDiscount({ productId, discountType, discountValue }))}
                                     onRemove={(productId) => dispatch(removeLineItem({ productId }))}
                                 />
                             ))}
@@ -177,29 +180,42 @@ const ComponentsAppsPosSalesCart = () => {
                 <div className="panel">
                     <div className="flex items-center justify-between py-1">
                         <span>{t('subtotal')} ({cart.length} items)</span>
-                        <span>${subtotal.toFixed(2)}</span>
+                        <span>{currency(rawSubtotal)}</span>
                     </div>
+                    {itemDiscountsTotal > 0 && (
+                        <div className="flex items-center justify-between py-1">
+                            <span>{t('item_discount')}</span>
+                            <span>-{currency(itemDiscountsTotal)}</span>
+                        </div>
+                    )}
                     <div className="flex items-center justify-between py-1">
                         <span>
                             {t('discount')} (F6){discountPercent > 0 ? ` — ${discountPercent}%` : ''}
                         </span>
-                        <span>${discountAmount.toFixed(2)}</span>
+                        <span>{currency(discountAmount)}</span>
                     </div>
                     <div className="mt-2 flex items-center justify-between border-t border-white-light pt-2 text-lg font-bold dark:border-[#1b2e4b]">
                         <span>{t('customer_owes')}</span>
-                        <span>${total.toFixed(2)}</span>
+                        <span>{currency(total)}</span>
                     </div>
 
                     <button type="button" className="btn btn-primary mt-4 w-full" onClick={handleOpenCheckout}>
                         {t('checkout')} (F9)
                     </button>
-                    <button type="button" className="btn btn-outline-primary mt-2 w-full" onClick={() => setShowCustomForm((v) => !v)}>
-                        {t('custom_product')} (F2)
-                    </button>
                 </div>
             </div>
 
-            <PosCheckoutModal ref={checkoutModalRef} open={checkoutOpen} cart={cart} total={total} autoPrintInvoice={autoPrintInvoice} onClose={() => setCheckoutOpen(false)} />
+            <PosCheckoutModal
+                ref={checkoutModalRef}
+                open={checkoutOpen}
+                cart={cart}
+                total={total}
+                discountPercent={discountPercent}
+                autoPrintInvoice={autoPrintInvoice}
+                storeId={storeId ?? 0}
+                shiftId={activeShift?.shift_id ?? null}
+                onClose={() => setCheckoutOpen(false)}
+            />
         </div>
     );
 };

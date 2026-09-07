@@ -1,5 +1,3 @@
-import { OrderStatus, PaymentMethod } from '@/components/apps/pos/pos-data';
-
 type BadgeColor = 'success' | 'danger' | 'warning' | 'info' | 'primary' | 'secondary';
 
 export default function PosStatusBadge({ label, color }: { label: string; color: BadgeColor }) {
@@ -12,12 +10,14 @@ export function stockStatusBadge(available: number): { label: string; color: Bad
     return { label: 'In stock', color: 'success' };
 }
 
-export function orderStatusBadge(status: OrderStatus): { label: string; color: BadgeColor } {
-    if (status === 'completed') return { label: 'Completed', color: 'success' };
-    if (status === 'pending') return { label: 'Pending', color: 'warning' };
-    return { label: 'Cancelled', color: 'danger' };
+// Matches core.models.Order.status values as actually written by the checkout
+// endpoint / omnichannel webhooks ('Completed', 'Pending', 'Canceled').
+export function orderStatusBadge(status: string): { label: string; color: BadgeColor } {
+    if (status === 'Completed') return { label: 'Completed', color: 'success' };
+    if (status === 'Pending') return { label: 'Pending', color: 'warning' };
+    return { label: status, color: 'danger' };
 }
 
-export function paymentMethodBadge(method: PaymentMethod): { label: string; color: BadgeColor } {
-    return method === 'cash' ? { label: 'Cash', color: 'primary' } : { label: 'Bank QR', color: 'info' };
+export function paymentMethodBadge(method: string): { label: string; color: BadgeColor } {
+    return method === 'Cash' ? { label: 'Cash', color: 'primary' } : { label: method, color: 'info' };
 }

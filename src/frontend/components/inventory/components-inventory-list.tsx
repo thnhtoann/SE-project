@@ -8,7 +8,8 @@ import IconPlus from '@/components/icon/icon-plus';
 import IconSearch from '@/components/icon/icon-search';
 import IconTrashLines from '@/components/icon/icon-trash-lines';
 import IconTrendingUp from '@/components/icon/icon-trending-up';
-import { PRODUCTS, SUPPLIERS } from '@/data/mock-products';
+import { apiFetch } from '@/lib/api-client';
+import { currency } from '@/lib/currency';
 import { getTranslation } from '@/i18n';
 import {
     discountedPrice,
@@ -21,49 +22,98 @@ import {
     stockStatusBadgeClass,
     stockStatusKey,
 } from '@/lib/inventory';
-import { ExpiryStatus, Product } from '@/types/admin';
+import {
+    BatchApiRecord,
+    CategoryRecord,
+    ExpiryStatus,
+    ForecastProductRow,
+    ForecastResponse,
+    Product,
+    ProductApiRecord,
+    StoreInventoryApiRecord,
+    StoreRecord,
+} from '@/types/admin';
+import { assembleProducts } from '@/lib/inventory-assemble';
+import { useApi } from '@/lib/hooks/use-api';
+import { IRootState } from '@/store';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-
-const currency = (value: number) => `₫${Math.round(value).toLocaleString('en-US')}`;
-
-const supplierName = (supplierId: number) => SUPPLIERS.find((s) => s.supplier_id === supplierId)?.supplier_name ?? '—';
+import { useCallback, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
 
 type ExpiryFilter = 'all' | ExpiryStatus;
 
+// A product with enough stock to clear its min_threshold still shows as "In Stock"
+// unless the demand forecast flags a reorder as needed -- in that case the badge
+// should read as a warning too, since a green "In Stock" would hide the risk.
+const getEffectiveStockStatus = (p: Product, forecast?: ForecastProductRow) => {
+    const status = getStockStatus(p);
+    if (status === 'In Stock' && forecast?.action_required) return 'Low Stock' as const;
+    return status;
+};
+
 const ComponentsInventoryList = () => {
     const { t } = getTranslation();
-    const [items, setItems] = useState(PRODUCTS);
+    const role = useSelector((state: IRootState) => state.session.role);
+    const isChainManager = role === 'Chain Manager' || role === 'Admin';
+
+    const [selectedStoreId, setSelectedStoreId] = useState('');
     const [search, setSearch] = useState('');
     const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('all');
-    const [filtered, setFiltered] = useState(items);
 
-    useEffect(() => {
-        setFiltered(
+    // Store Manager/Cashier are locked server-side to their own store no matter
+    // what's requested here; the ?store= param only ever does something for a
+    // Chain Manager/Admin using the store picker below. Same param on both
+    // endpoints so the forecast's current_stock always matches the Quantity
+    // column instead of silently falling back to a chain-wide total.
+    const storeQuery = isChainManager && selectedStoreId ? `?store=${selectedStoreId}` : '';
+    const inventoryPath = `/store-inventories/${storeQuery}`;
+
+    const { data: products, mutate: mutateProducts } = useApi<ProductApiRecord[]>('/products/');
+    const { data: categories } = useApi<CategoryRecord[]>('/categories/');
+    const { data: batches } = useApi<BatchApiRecord[]>('/batches/');
+    const { data: inventories } = useApi<StoreInventoryApiRecord[]>(inventoryPath);
+    const { data: stores } = useApi<StoreRecord[]>('/stores/');
+    // Demand-forecast reorder risk (forecasting/procurement apps) -- Store/Chain-Manager-only,
+    // so a Cashier viewing this page degrades gracefully to no risk indicator rather than an error.
+    const { data: forecastResponse } = useApi<ForecastResponse>(`/procurement/forecast/${storeQuery}`);
+
+    const loading = !products || !categories || !batches || !inventories || !stores;
+    const items = useMemo(
+        () => (products && categories && batches && inventories && stores ? assembleProducts(products, categories, batches, inventories, stores) : []),
+        [products, categories, batches, inventories, stores],
+    );
+    const forecastByProduct = useMemo(() => new Map((forecastResponse?.products ?? []).map((p) => [p.product_id, p])), [forecastResponse]);
+    const storeList = stores ?? [];
+
+    const filtered = useMemo(
+        () =>
             items.filter((product) => {
                 const matchesSearch =
                     product.product_name.toLowerCase().includes(search.toLowerCase()) ||
                     product.barcode.includes(search) ||
-                    product.category.toLowerCase().includes(search.toLowerCase()) ||
-                    supplierName(product.supplier_id).toLowerCase().includes(search.toLowerCase());
+                    product.category.toLowerCase().includes(search.toLowerCase());
                 const matchesExpiry = expiryFilter === 'all' || getProductExpiryStatus(product) === expiryFilter;
                 return matchesSearch && matchesExpiry;
             }),
-        );
-    }, [search, expiryFilter, items]);
+        [items, search, expiryFilter],
+    );
 
     const totalProducts = items.length;
-    const lowOrOutOfStock = items.filter((p) => getStockStatus(p) !== 'In Stock').length;
+    const lowOrOutOfStock = items.filter((p) => getEffectiveStockStatus(p, forecastByProduct.get(p.product_id)) !== 'In Stock').length;
     const expiringSoon = items.filter((p) => getProductExpiryStatus(p) === 'Near Expiry').length;
     const expired = items.filter((p) => getProductExpiryStatus(p) === 'Expired').length;
 
     const deleteProduct = useCallback(
         (id: number) => {
-            if (window.confirm(t('confirm_delete_product'))) {
-                setItems((prev) => prev.filter((p) => p.product_id !== id));
-            }
+            if (!window.confirm(t('confirm_delete_product'))) return;
+            apiFetch(`/products/${id}/`, { method: 'DELETE' })
+                .then(() => mutateProducts((prev) => prev?.filter((p) => p.product_id !== id), { revalidate: false }))
+                .catch(() => {
+                    // Leave the row in place — most likely a 4xx because the
+                    // product is still referenced elsewhere (e.g. an OrderDetail).
+                });
         },
-        [t],
+        [t, mutateProducts],
     );
 
     const columns: AdminTableColumn<Product>[] = useMemo(
@@ -74,9 +124,14 @@ const ComponentsInventoryList = () => {
                 sortable: true,
                 sortValue: (p) => p.product_name,
                 render: (p) => (
-                    <div>
-                        <div className="font-semibold">{p.product_name}</div>
-                        <div className="text-xs text-white-dark">{p.barcode}</div>
+                    <div className="flex items-center gap-3">
+                        <div className="grid h-9 w-9 shrink-0 place-content-center overflow-hidden rounded-md border border-white-light text-white-dark dark:border-[#1b2e4b]">
+                            {p.photo ? <img src={p.photo} alt={p.product_name} className="h-full w-full object-cover" /> : <IconBox className="h-4 w-4" />}
+                        </div>
+                        <div>
+                            <div className="font-semibold">{p.product_name}</div>
+                            <div className="text-xs text-white-dark">{p.barcode}</div>
+                        </div>
                     </div>
                 ),
             },
@@ -85,10 +140,48 @@ const ComponentsInventoryList = () => {
                 key: 'stock',
                 header: t('stock_status'),
                 sortable: true,
-                sortValue: (p) => getStockStatus(p),
-                render: (p) => <span className={`badge ${stockStatusBadgeClass[getStockStatus(p)]}`}>{t(stockStatusKey[getStockStatus(p)])}</span>,
+                sortValue: (p) => getEffectiveStockStatus(p, forecastByProduct.get(p.product_id)),
+                render: (p) => {
+                    const forecast = forecastByProduct.get(p.product_id);
+                    const status = getEffectiveStockStatus(p, forecast);
+                    const isLowStock = getStockStatus(p) !== 'In Stock';
+                    const hasForecastRisk = forecast?.action_required ?? false;
+                    const badge = <span className={`badge ${stockStatusBadgeClass[status]}`}>{t(stockStatusKey[status])}</span>;
+                    if (!isLowStock && !hasForecastRisk) {
+                        return badge;
+                    }
+                    return (
+                        <span className="inline-flex items-center gap-1.5">
+                            {badge}
+                            <span className="group/tip relative inline-flex">
+                                <IconInfoCircle className="h-4 w-4 shrink-0 cursor-help text-warning" />
+                                <span className="pointer-events-none absolute left-0 top-full z-10 mt-2 hidden w-64 rounded bg-black/90 p-2 text-left text-xs font-normal normal-case leading-relaxed text-white group-hover/tip:block">
+                                    {isLowStock && (
+                                        <div>
+                                            {t('quantity_alert_low_stock')
+                                                .replace('{quantity}', String(getTotalQuantity(p)))
+                                                .replace('{threshold}', String(p.min_threshold))}
+                                        </div>
+                                    )}
+                                    {hasForecastRisk && forecast && (
+                                        <div className={isLowStock ? 'mt-1.5 border-t border-white/20 pt-1.5' : ''}>
+                                            {t('restock_risk')}: {forecast.stockout_risk} — {t('reorder')} {forecast.recommended_order_quantity}. {forecast.reasoning}
+                                        </div>
+                                    )}
+                                </span>
+                            </span>
+                        </span>
+                    );
+                },
             },
-            { key: 'quantity', header: t('quantity'), sortable: true, align: 'right', sortValue: (p) => getTotalQuantity(p), render: (p) => getTotalQuantity(p) },
+            {
+                key: 'quantity',
+                header: t('quantity'),
+                sortable: true,
+                align: 'right',
+                sortValue: (p) => getTotalQuantity(p),
+                render: (p) => <span>{getTotalQuantity(p)}</span>,
+            },
             {
                 key: 'expiry',
                 header: t('nearest_expiry'),
@@ -105,7 +198,6 @@ const ComponentsInventoryList = () => {
                     );
                 },
             },
-            { key: 'supplier', header: t('supplier'), sortable: true, sortValue: (p) => supplierName(p.supplier_id), render: (p) => supplierName(p.supplier_id) },
             {
                 key: 'price',
                 header: t('price'),
@@ -141,7 +233,7 @@ const ComponentsInventoryList = () => {
                 ),
             },
         ],
-        [t, deleteProduct],
+        [t, deleteProduct, forecastByProduct],
     );
 
     return (
@@ -211,6 +303,16 @@ const ComponentsInventoryList = () => {
                                 <IconPlus />
                                 {t('add_product')}
                             </Link>
+                            {isChainManager && (
+                                <select className="form-select w-auto" value={selectedStoreId} onChange={(e) => setSelectedStoreId(e.target.value)}>
+                                    <option value="">{t('all_stores')}</option>
+                                    {storeList.map((s) => (
+                                        <option key={s.store_id} value={s.store_id}>
+                                            {s.store_name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
                             <select className="form-select w-auto" value={expiryFilter} onChange={(e) => setExpiryFilter(e.target.value as ExpiryFilter)}>
                                 <option value="all">{t('all_expiry_statuses')}</option>
                                 <option value="Expired">{t('expiry_expired')}</option>
@@ -232,7 +334,11 @@ const ComponentsInventoryList = () => {
                         </div>
                     </div>
 
-                    <AdminTable columns={columns} rows={filtered} rowKey={(p) => p.product_id} emptyMessage={t('no_products_found')} />
+                    {loading ? (
+                        <div className="py-10 text-center text-white-dark">{t('loading')}</div>
+                    ) : (
+                        <AdminTable columns={columns} rows={filtered} rowKey={(p) => p.product_id} emptyMessage={t('no_products_found')} />
+                    )}
                 </div>
             </div>
         </div>

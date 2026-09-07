@@ -17,6 +17,7 @@ venv/
 env/
 src/backend/db.sqlite3
 src/backend/staticfiles/
+src/backend/media/
 
 # Docker
 *.pid

@@ -1,17 +1,23 @@
 from django.urls import path
 from .views import (
-    CreateOrderView,
     AddItemView,
-    RemoveItemView,
     CheckoutView,
-    GetOrderView,
-    ProductPriceView,
-    PaymentWebhookView,
-    SalesAnalyticsView,
+    CreateOrderView,
+    CreateQrPaymentView,
     DiscountSettingView,
+    GetOrderView,
+    HealthCheckView,
+    PayOSWebhookView,
+    PaymentWebhookView,
+    ProductPriceView,
+    QrPaymentStatusView,
+    RemoveItemView,
+    SalesAnalyticsView,
 )
 
 urlpatterns = [
+    path("", HealthCheckView.as_view(), name="pos-health"),
+
     path(
         "orders/create/",
         CreateOrderView.as_view(),
@@ -37,32 +43,36 @@ urlpatterns = [
     ),
 
     path(
-    "orders/<int:order_id>/",
-    GetOrderView.as_view(),
-    name="get-order",
+        "orders/<int:order_id>/",
+        GetOrderView.as_view(),
+        name="get-order",
     ),
 
     path(
-    "products/<int:product_id>/price/",
-    ProductPriceView.as_view(),
-    name="product-price",
+        "products/<int:product_id>/price/",
+        ProductPriceView.as_view(),
+        name="product-price",
     ),
 
     path(
-    "webhooks/payment/",
-    PaymentWebhookView.as_view(),
-    name="payment-webhook",
+        "webhooks/payment/",
+        PaymentWebhookView.as_view(),
+        name="payment-webhook",
     ),
 
     path(
-    "analytics/sales/",
-    SalesAnalyticsView.as_view(),
-    name="sales-analytics",
+        "analytics/sales/",
+        SalesAnalyticsView.as_view(),
+        name="sales-analytics",
     ),
-    
+
     path(
-    "discount-settings/",
-    DiscountSettingView.as_view(),
-    name="discount-settings",
-),
+        "discount-settings/",
+        DiscountSettingView.as_view(),
+        name="discount-settings",
+    ),
+
+    path("qr-payments/", CreateQrPaymentView.as_view(), name="pos-qr-payment-create"),
+    path("qr-payments/<int:order_code>/", QrPaymentStatusView.as_view(), name="pos-qr-payment-status"),
+    path("webhooks/payos/", PayOSWebhookView.as_view(), name="pos-payos-webhook"),
 ]

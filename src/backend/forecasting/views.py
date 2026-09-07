@@ -11,6 +11,14 @@ Query params (all optional):
   - category: filter to one Product.category.category_name
   - risk: filter to one of Low / Medium / High
   - action_required: 'true' to only return products that need a PO
+  - store: scope current_stock (and therefore the risk evaluation) to one store
+    instead of the chain-wide total. Store Manager is always scoped to their own
+    store regardless of this param; Chain Manager/Admin get chain-wide totals
+    unless they pass this. NOTE: expected_demand/safety_stock_level still come
+    from the cached chain-wide DemandForecast -- the underlying sales history
+    (DailySalesRecord) isn't split per store, so only current_stock (and the
+    risk/recommendation computed from it) is store-scoped, not the demand curve
+    itself.
 
 Example response:
 {
@@ -62,6 +70,15 @@ class ForecastOverviewView(APIView):
         risk_filter = request.query_params.get('risk')
         action_required_only = request.query_params.get('action_required') == 'true'
 
+        # Same store-scoping convention as StoreInventoryViewSet/StaffViewSet/
+        # LowStockAlertViewSet: Chain Manager/Admin can pass ?store= (or omit
+        # for chain-wide); everyone else is locked to their own store.
+        user = request.user
+        is_chain_scope = bool(user.role and user.role.role_name in ('Chain Manager', 'Admin'))
+        store_id = request.query_params.get('store')
+        if not is_chain_scope:
+            store_id = user.store_id
+
         forecasts = DemandForecast.objects.select_related('product', 'product__category')
         if category:
             forecasts = forecasts.filter(product__category__category_name=category)
@@ -72,7 +89,7 @@ class ForecastOverviewView(APIView):
 
         for forecast in forecasts:
             product = forecast.product
-            current_stock = self._current_stock(product)
+            current_stock = self._current_stock(product, store_id=store_id)
 
             evaluation = evaluate_reorder(
                 current_stock=current_stock,
@@ -114,22 +131,20 @@ class ForecastOverviewView(APIView):
         serializer = ForecastResponseSerializer({'overview': overview, 'products': products_payload})
         return Response(serializer.data)
 
-    def _current_stock(self, product):
-        """Real-time stock summed across StoreInventory. Falls back to the most recent
-        DailySalesRecord snapshot when no StoreInventory exists yet for this product (e.g.
-        products created by the load_sales_history demo loader, which doesn't seed inventory)."""
-        total = (
-            StoreInventory.objects
-            .filter(batch__product=product)
-            .aggregate(total=Sum('quantity'))['total']
-        )
+    def _current_stock(self, product, store_id=None):
+        """Real-time stock summed across StoreInventory, optionally scoped to one store.
+        Falls back to the most recent DailySalesRecord snapshot when no StoreInventory
+        exists yet for this product (e.g. products created by the load_sales_history demo
+        loader, which doesn't seed inventory)."""
+        qs = StoreInventory.objects.filter(batch__product=product)
+        if store_id:
+            qs = qs.filter(store_id=store_id)
+        total = qs.aggregate(total=Sum('quantity'))['total']
         if total is not None:
             return total
 
-        latest = (
-            DailySalesRecord.objects
-            .filter(product=product)
-            .order_by('-sale_date')
-            .first()
-        )
+        latest_qs = DailySalesRecord.objects.filter(product=product)
+        if store_id:
+            latest_qs = latest_qs.filter(store_id=store_id)
+        latest = latest_qs.order_by('-sale_date').first()
         return latest.current_stock if latest else 0
